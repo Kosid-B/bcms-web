@@ -26,7 +26,7 @@ This workspace now includes the missing backend pieces needed to run the current
 5. Copy `apps/web/.env.example` to a real environment file and fill in production values.
 6. Deploy the frontend to Vercel with the root of this workspace.
 7. Point your main domain and wildcard subdomain to Vercel:
-   - `bcms-automate.yourdomain.com`
+   - `bcms.yourdomain.com`
    - `*.yourdomain.com`
 8. In Supabase Auth, add your production URLs to `Site URL` and redirect URLs.
 
@@ -115,7 +115,7 @@ If you want to move from bank-transfer slips to card payments, the clean next st
    - `VITE_SUPABASE_ANON`
 4. Deploy and verify the generated production URL works.
 5. Add your real custom domain and wildcard subdomain in Vercel:
-   - `bcms-automate.yourdomain.com`
+   - `bcms.yourdomain.com`
    - `*.yourdomain.com`
 
 ### Supabase Auth
@@ -123,9 +123,9 @@ If you want to move from bank-transfer slips to card payments, the clean next st
 Set these in Supabase Dashboard -> Authentication -> URL Configuration:
 
 - Site URL:
-  `https://bcms-automate.yourdomain.com`
+  `https://bcms.yourdomain.com`
 - Redirect URLs:
-  - `https://bcms-automate.yourdomain.com`
+  - `https://bcms.yourdomain.com`
   - `https://*.yourdomain.com`
   - your Vercel preview URL if you want preview testing
 

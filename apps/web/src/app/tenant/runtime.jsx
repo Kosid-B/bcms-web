@@ -203,7 +203,7 @@ export function TenantNotFoundScreen() {
         ไม่มีบัญชีที่ลงทะเบียนไว้ — กำลัง redirect ไปหน้าหลัก...
       </div>
       <a
-        href={`https://bcms-automate.${BASE_DOMAIN}`}
+        href={`https://bcms.${BASE_DOMAIN}`}
         style={{
           background: "#1565C0",
           color: "#FFFFFF",
