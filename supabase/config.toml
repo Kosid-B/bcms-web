@@ -1,0 +1,50 @@
+[project_id]
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "25MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = [
+  "http://localhost:5173",
+  "https://bcms-automate.theossphere.com",
+]
+jwt_expiry = 3600
+enable_signup = true
+
+[functions.resolve-tenant]
+verify_jwt = false
+
+[functions.payment-webhook]
+verify_jwt = true
+
+[functions.subscription-activate]
+verify_jwt = true
+
+[functions.plg-event]
+verify_jwt = false
+
+[functions.plg-scorer]
+verify_jwt = false

@@ -1,0 +1,12 @@
+{
+  "name": "bcms-saas",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "deploy:supabase": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-supabase.ps1"
+  }
+}
