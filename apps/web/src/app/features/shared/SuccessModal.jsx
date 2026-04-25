@@ -1,12 +1,29 @@
-import {
-  RealtimeUpgradeModal as LegacyRealtimeUpgradeModal,
-  SuccessModal as LegacySuccessModal,
-} from "../../../../../../bcms-saas-platform.jsx";
+import React, { Suspense, lazy } from "react";
+
+const LegacySuccessModal = lazy(() =>
+  import("../../../../../../bcms-saas-platform.jsx").then((module) => ({
+    default: module.SuccessModal,
+  }))
+);
+
+const LegacyRealtimeUpgradeModal = lazy(() =>
+  import("../../../../../../bcms-saas-platform.jsx").then((module) => ({
+    default: module.RealtimeUpgradeModal,
+  }))
+);
 
 export function SuccessModal(props) {
-  return <LegacySuccessModal {...props} />;
+  return (
+    <Suspense fallback={null}>
+      <LegacySuccessModal {...props} />
+    </Suspense>
+  );
 }
 
 export function RealtimeUpgradeModal(props) {
-  return <LegacyRealtimeUpgradeModal {...props} />;
+  return (
+    <Suspense fallback={null}>
+      <LegacyRealtimeUpgradeModal {...props} />
+    </Suspense>
+  );
 }

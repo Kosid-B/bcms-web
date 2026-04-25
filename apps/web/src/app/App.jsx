@@ -1,12 +1,15 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 
-import { AppCore } from "../../../../bcms-saas-platform.jsx";
 import {
   TenantLoadingScreen,
   TenantNotFoundScreen,
   TenantProvider,
   useTenantBootstrap,
 } from "./tenant/runtime";
+
+const AppCore = lazy(() =>
+  import("./AppCore.jsx")
+);
 
 export default function App() {
   const { tenant, loading, error } = useTenantBootstrap();
@@ -16,7 +19,9 @@ export default function App() {
 
   return (
     <TenantProvider value={tenant}>
-      <AppCore tenant={tenant} />
+      <Suspense fallback={<TenantLoadingScreen />}>
+        <AppCore tenant={tenant} />
+      </Suspense>
     </TenantProvider>
   );
 }

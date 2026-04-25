@@ -1,5 +1,23 @@
-import { PaymentModal as LegacyPaymentModal } from "../../../../../../bcms-saas-platform.jsx";
+import React, { Suspense, lazy } from "react";
 
-export default function PaymentModal(props) {
-  return <LegacyPaymentModal {...props} />;
+const LegacyPaymentModal = lazy(() =>
+  import("../../../../../../bcms-saas-platform.jsx").then((module) => ({
+    default: module.PaymentModal,
+  }))
+);
+
+export default function PaymentModal({ pkgId, ...props }) {
+  return (
+    <Suspense fallback={null}>
+      <LegacyPaymentModal
+        {...props}
+        pkg={{
+          id: pkgId,
+          name: pkgId === "enterprise" ? "Enterprise" : pkgId === "starter" ? "Starter" : "Professional",
+          price: pkgId === "starter" ? 2900 : pkgId === "enterprise" ? 19900 : 7900,
+          priceAnnual: pkgId === "starter" ? 2320 : pkgId === "enterprise" ? 15920 : 6320,
+        }}
+      />
+    </Suspense>
+  );
 }
