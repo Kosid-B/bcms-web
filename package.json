@@ -5,7 +5,7 @@
   "packageManager": "pnpm@10.33.2",
   "scripts": {
     "dev": "pnpm --filter web dev",
-    "build": "pnpm --filter web build",
+    "build": "pnpm --filter web build && node ./scripts/sync-web-dist.mjs",
     "lint": "pnpm --filter web lint",
     "deploy:supabase": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-supabase.ps1"
   }

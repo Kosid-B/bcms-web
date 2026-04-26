@@ -2,7 +2,7 @@
   "framework": null,
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
-  "outputDirectory": "apps/web/dist",
+  "outputDirectory": "dist",
   "rewrites": [
     {
       "source": "/((?!assets/|vite.svg|favicon.ico|robots.txt|manifest.webmanifest).*)",
