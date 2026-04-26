@@ -3167,17 +3167,37 @@ function BIAPage({ orgId, pkg, onUpgrade }) {
   const atLimit = isFree && processes.length >= 3;
 
   const handleSave = async () => {
-    if (!form.name) return;
+    const name = (form.name || "").trim();
+    if (!name) return;
+    if (!orgId) {
+      alert("ยังไม่พบ Organization ของผู้ใช้ กรุณาออกจากระบบแล้วเข้าใหม่");
+      return;
+    }
     setSaving(true);
-    await supa.from("bia_processes").insert({ ...form, org_id: orgId,
+    const payload = {
+      org_id: orgId,
+      name,
+      department: (form.department || "").trim() || null,
+      owner: (form.owner || "").trim() || null,
+      description: (form.description || "").trim() || null,
+      status: "draft",
       criticality: Number(form.criticality),
       rto_minutes: form.rto_minutes ? Number(form.rto_minutes) : null,
       rpo_minutes: form.rpo_minutes ? Number(form.rpo_minutes) : null,
       mtpd_minutes: form.mtpd_minutes ? Number(form.mtpd_minutes) : null,
-    });
-    setSaving(false); setDrawer(false);
+      metadata: {},
+    };
+    const { error } = await supa.from("bia_processes").insert(payload);
+    setSaving(false);
+    if (error) {
+      console.error("Failed to create BIA process", error);
+      alert(`เพิ่ม BIA Process ไม่สำเร็จ: ${error.message || "Unknown error"}`);
+      return;
+    }
+    setDrawer(false);
     setForm({ name:"",department:"",owner:"",criticality:3,rto_minutes:"",rpo_minutes:"",mtpd_minutes:"",description:"" });
     load();
+    supa.functions("plg-event",{event_name:"bia_process_created",properties:{criticality:payload.criticality}}).catch(()=>{});
   };
 
   const critColor = (c) => c>=5?T.red:c>=4?T.amber:c>=3?T.gold:T.green;
