@@ -5,6 +5,8 @@ type PqlLead = {
   org_id: string;
   org_name: string;
   plan: string;
+  subscription_status: string;
+  segment: "standard" | "win_back";
   score: number;
   level: "cold" | "warm" | "hot" | "sales_ready";
   last_seen: string | null;
@@ -50,6 +52,8 @@ function normalizeLead(value: unknown): PqlLead | null {
     org_id: orgId,
     org_name: String(lead.org_name ?? "Unknown organization"),
     plan: String(lead.plan ?? "free"),
+    subscription_status: String(lead.subscription_status ?? "inactive"),
+    segment: String(lead.segment ?? "standard") === "win_back" ? "win_back" : "standard",
     score: Number(lead.score ?? 0),
     level,
     last_seen: lead.last_seen ? String(lead.last_seen) : null,
@@ -111,7 +115,13 @@ Deno.serve(async (req) => {
 
     const allLeads = scored.filter((lead): lead is PqlLead => Boolean(lead));
     const leads = allLeads
-      .filter((lead) => lead.score >= 60 || lead.level === "hot" || lead.level === "sales_ready")
+      .filter((lead) =>
+        lead.score >= 60
+        || lead.level === "hot"
+        || lead.level === "sales_ready"
+        || (lead.signals?.win_back ?? 0) === 1
+        || lead.segment === "win_back"
+      )
       .sort((a, b) => b.score - a.score)
       .slice(0, 50);
 
@@ -160,6 +170,7 @@ Deno.serve(async (req) => {
       const signals = lead.signals ?? {};
       return (signals.bia_processes ?? 0) > 0 || (signals.bc_plans ?? 0) > 0 || activeOrgs.has(lead.org_id);
     }).length;
+    const winBack = allLeads.filter((lead) => (lead.signals?.win_back ?? 0) === 1 || lead.segment === "win_back").length;
 
     return json({
       leads,
@@ -179,6 +190,7 @@ Deno.serve(async (req) => {
         arr_thb: arrThb,
         plan_distribution: planDistribution,
         bia_processes: biaCountRes.count ?? 0,
+        win_back,
       },
       feature_adoption: featureAdoption,
       generated_at: new Date().toISOString(),
