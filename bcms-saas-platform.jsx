@@ -6,6 +6,12 @@ import DashboardModule from "./apps/web/src/app/features/dashboard/Dashboard.jsx
 import WelcomePageModule from "./apps/web/src/app/features/marketing/WelcomePage.jsx";
 import { SUPABASE_URL, SUPABASE_ANON } from "./apps/web/src/app/config/platform.js";
 import {
+  buildBiaProcessPayload,
+  buildBiaWizardPayload,
+  createEmptyBiaProcessForm,
+  createEmptyBiaWizardForm,
+} from "./apps/web/src/app/features/bia/bia-helpers.js";
+import {
   RealtimeUpgradeModal as RealtimeUpgradeModalModule,
   SuccessModal as SuccessModalModule,
 } from "./apps/web/src/app/features/shared/SuccessModal.jsx";
@@ -3146,10 +3152,7 @@ function BIAPage({ orgId, pkg, onUpgrade }) {
   const [processes, setProcesses] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [drawer, setDrawer]       = useState(false);
-  const [form, setForm]           = useState({
-    name:"", department:"", owner:"", criticality:3,
-    rto_minutes:"", rpo_minutes:"", mtpd_minutes:"", description:"",
-  });
+  const [form, setForm]           = useState(() => createEmptyBiaProcessForm());
   const [saving, setSaving] = useState(false);
   const isFree = pkg === "free";
 
@@ -3174,19 +3177,7 @@ function BIAPage({ orgId, pkg, onUpgrade }) {
       return;
     }
     setSaving(true);
-    const payload = {
-      org_id: orgId,
-      name,
-      department: (form.department || "").trim() || null,
-      owner: (form.owner || "").trim() || null,
-      description: (form.description || "").trim() || null,
-      status: "draft",
-      criticality: Number(form.criticality),
-      rto_minutes: form.rto_minutes ? Number(form.rto_minutes) : null,
-      rpo_minutes: form.rpo_minutes ? Number(form.rpo_minutes) : null,
-      mtpd_minutes: form.mtpd_minutes ? Number(form.mtpd_minutes) : null,
-      metadata: {},
-    };
+    const payload = buildBiaProcessPayload({ ...form, name }, orgId);
     const { error } = await supa.from("bia_processes").insert(payload);
     setSaving(false);
     if (error) {
@@ -3195,7 +3186,7 @@ function BIAPage({ orgId, pkg, onUpgrade }) {
       return;
     }
     setDrawer(false);
-    setForm({ name:"",department:"",owner:"",criticality:3,rto_minutes:"",rpo_minutes:"",mtpd_minutes:"",description:"" });
+    setForm(createEmptyBiaProcessForm());
     load();
     supa.functions("plg-event",{event_name:"bia_process_created",properties:{criticality:payload.criticality}}).catch(()=>{});
   };
@@ -7343,14 +7334,9 @@ function BIAWizardPage({ orgId, pkg, onUpgrade }) {
   const [search, setSearch]       = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
 
-  const [form, setForm] = useState({
-    name:"", department:"", owner:"", description:"", industry:"all",
-    impacts:{ financial:0, regulatory:0, reputation:0, operational:0 },
-    mac_pct: 40,        // Minimum Acceptable Capacity %
-    rto_minutes: null,  // Recovery Time Objective (นาฬิกาเริ่มนับเมื่อ capacity < MAC%)
-    rpo_minutes: null,  // Recovery Point Objective
-    resources:{ people:[""], system:[""], vendor:[""], facility:[""] },
-  });
+  const [form, setForm] = useState(() => createEmptyBiaWizardForm());
+  const resetTimerRef = useRef(null);
+  const aiTimerRef = useRef(null);
 
   // Derived values
   const impactScores = form.impacts;
@@ -7381,7 +7367,8 @@ function BIAWizardPage({ orgId, pkg, onUpgrade }) {
   const applyAISuggestion = () => {
     setAiLoading(true);
     const bench = INDUSTRY_BENCHMARKS[form.industry] || INDUSTRY_BENCHMARKS.all;
-    setTimeout(() => {
+    if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
+    aiTimerRef.current = setTimeout(() => {
       setForm(f => ({
         ...f,
         impacts:{ financial:bench.financial, regulatory:bench.regulatory,
@@ -7390,8 +7377,14 @@ function BIAWizardPage({ orgId, pkg, onUpgrade }) {
         mac_pct: bench.mac_pct || 40,
       }));
       setAiLoading(false);
+      aiTimerRef.current = null;
     }, 900);
   };
+
+  useEffect(() => () => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
+  }, []);
 
   const setResource = (type,idx,val) => setForm(f => {
     const a=[...f.resources[type]]; a[idx]=val;
@@ -7402,28 +7395,30 @@ function BIAWizardPage({ orgId, pkg, onUpgrade }) {
   }));
 
   const handleFinish = async () => {
+    if (!orgId) {
+      alert("ยังไม่พบ Organization ของผู้ใช้ กรุณาออกจากระบบแล้วเข้าใหม่");
+      return;
+    }
+    if (!(form.name || "").trim()) return;
     setSaving(true);
-    await supa.from("bia_processes").insert({
-      org_id:orgId, name:form.name, department:form.department, owner:form.owner,
-      description:form.description, criticality,
-      rto_minutes:form.rto_minutes, rpo_minutes:form.rpo_minutes, mtpd_minutes:null,
-      metadata:{
-        impacts:form.impacts, resources:form.resources,
-        mac_pct:form.mac_pct, mac_label:macLabel(form.mac_pct),
-        trigger_description:`Capacity < ${form.mac_pct}% → BC Plan เปิดใช้งาน → RTO นับ`,
-      },
-    }).catch(()=>{});
+    const payload = buildBiaWizardPayload(form, orgId, criticality, macLabel);
+    const { error } = await supa.from("bia_processes").insert(payload);
+    if (error) {
+      setSaving(false);
+      console.error("Failed to create BIA wizard process", error);
+      alert(`บันทึก BIA ไม่สำเร็จ: ${error.message || "Unknown error"}`);
+      return;
+    }
     supa.functions("plg-event",{
       event_name:"bia_wizard_v3_completed",
       properties:{ criticality, mac_pct:form.mac_pct, rto_minutes:form.rto_minutes }
     }).catch(()=>{});
     setSaving(false); setSaved(true);
-    setTimeout(() => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = setTimeout(() => {
       setSaved(false); setStep(1);
-      setForm({ name:"",department:"",owner:"",description:"",industry:"all",
-        impacts:{financial:0,regulatory:0,reputation:0,operational:0},
-        mac_pct:40,rto_minutes:null,rpo_minutes:null,
-        resources:{people:[""],system:[""],vendor:[""],facility:[""]} });
+      setForm(createEmptyBiaWizardForm());
+      resetTimerRef.current = null;
     }, 2400);
   };
 
