@@ -1,4 +1,5 @@
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { maybeSendSalesAlert } from "../_shared/sales-alert.ts";
 import { createAdminClient, getUserFromAuthHeader } from "../_shared/supabase.ts";
 
 Deno.serve(async (req) => {
@@ -32,7 +33,15 @@ Deno.serve(async (req) => {
       properties,
     });
 
-    return json({ ok: true });
+    let sales_alert = null;
+    try {
+      sales_alert = await maybeSendSalesAlert({ admin, orgId, triggerEvent: event_name });
+    } catch (alertError) {
+      console.warn("sales_alert_failed", alertError instanceof Error ? alertError.message : String(alertError));
+      sales_alert = { sent: false, reason: "alert_failed" };
+    }
+
+    return json({ ok: true, sales_alert });
   } catch (error) {
     return json({ error: error.message ?? "event_capture_failed" }, { status: 500 });
   }

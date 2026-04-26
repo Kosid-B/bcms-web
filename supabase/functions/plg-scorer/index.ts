@@ -32,6 +32,8 @@ const FEATURE_LABELS: Record<string, string> = {
   subscription_activated: "Payment",
 };
 
+const SYSTEM_ORG_ID = "00000000-0000-0000-0000-000000000000";
+
 function pct(part: number, total: number) {
   if (!total) return 0;
   return Number(((part / total) * 100).toFixed(1));
@@ -80,7 +82,13 @@ Deno.serve(async (req) => {
       paidOrderCountRes,
       totalProfilesRes,
     ] = await Promise.all([
-      admin.from("organizations").select("id,name,created_at").order("created_at", { ascending: false }).limit(200),
+      admin
+        .from("organizations")
+        .select("id,name,created_at")
+        .neq("id", SYSTEM_ORG_ID)
+        .neq("name", "PLATFORM_CONFIG")
+        .order("created_at", { ascending: false })
+        .limit(200),
       admin
         .from("subscriptions")
         .select("org_id,plan,status,updated_at,created_at")
