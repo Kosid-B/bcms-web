@@ -158,3 +158,28 @@ Confirm these exist in the Supabase Dashboard:
 5. Confirm a row is created in `payment_orders`.
 6. Approve the order from the admin flow.
 7. Confirm the subscription plan updates and the tenant can load from its subdomain.
+
+## Automated release pipeline (GitHub Actions)
+
+This repository now includes:
+
+- `.github/workflows/release-main.yml`
+
+Flow on every push to `main`:
+
+1. Verify web app (`pnpm lint` + `pnpm build`)
+2. Push Supabase migrations
+3. Verify BCP automate database objects exist
+4. Deploy Vercel production
+
+### Required GitHub Secrets
+
+Add these in GitHub repo settings -> Secrets and variables -> Actions:
+
+- `SUPABASE_ACCESS_TOKEN`
+- `SUPABASE_PROJECT_REF`
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+
+After secrets are set, every merge/push to `main` will release in the correct order and prevent frontend-backend mismatch.

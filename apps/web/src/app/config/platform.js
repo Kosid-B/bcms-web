@@ -1,6 +1,6 @@
 export const RESERVED_SUBDOMAINS = new Set([
   "www", "api", "app", "admin", "mail", "smtp", "ftp", "cdn",
-  "bcms", "auth", "dashboard", "blog", "docs", "help",
+  "bcms", "bcms-web", "auth", "dashboard", "blog", "docs", "help",
   "support", "status", "static", "assets", "img", "images",
 ]);
 
