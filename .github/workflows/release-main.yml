@@ -50,21 +50,19 @@ jobs:
         with:
           version: 2.95.2
 
-      - name: Link project
-        run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}" --workdir ./supabase
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      - name: Validate Supabase DB URL secret
+        run: |
+          if [ -z "${{ secrets.SUPABASE_DB_URL }}" ]; then
+            echo "Missing SUPABASE_DB_URL secret"
+            exit 1
+          fi
 
       - name: Push all migrations
-        run: supabase db push --workdir ./supabase
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase db push --workdir ./supabase --db-url "${{ secrets.SUPABASE_DB_URL }}"
 
       - name: Verify BCP automate objects
         run: |
-          supabase db query "select to_regclass('public.continuity_strategies') as continuity_strategies, to_regclass('public.continuity_procedure_steps') as continuity_procedure_steps, to_regprocedure('public.generate_bcp_automate(uuid,uuid,text)') as generate_bcp_automate, to_regprocedure('public.evaluate_bcp_readiness(uuid)') as evaluate_bcp_readiness;" --linked --workdir ./supabase -o table
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          supabase db query "select to_regclass('public.continuity_strategies') as continuity_strategies, to_regclass('public.continuity_procedure_steps') as continuity_procedure_steps, to_regprocedure('public.generate_bcp_automate(uuid,uuid,text)') as generate_bcp_automate, to_regprocedure('public.evaluate_bcp_readiness(uuid)') as evaluate_bcp_readiness;" --workdir ./supabase --db-url "${{ secrets.SUPABASE_DB_URL }}" -o table
 
   deploy_vercel:
     name: Deploy Vercel Production

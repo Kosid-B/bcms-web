@@ -176,8 +176,7 @@ Flow on every push to `main`:
 
 Add these in GitHub repo settings -> Secrets and variables -> Actions:
 
-- `SUPABASE_ACCESS_TOKEN`
-- `SUPABASE_PROJECT_REF`
+- `SUPABASE_DB_URL`
 - `VERCEL_TOKEN`
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
