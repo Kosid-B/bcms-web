@@ -27,15 +27,25 @@ export function useTenantBootstrap() {
         const hostname = window.location.hostname;
         const parts = hostname.split(".");
         const isDev = hostname === "localhost" || hostname.startsWith("127.");
+        const subdomainCandidate = parts[0] || "";
+        const isVercelPreviewAlias = /-projects$/i.test(subdomainCandidate);
+        const isVercelManagedHost = hostname.endsWith(".vercel.app");
 
         const isSubdomain = !isDev
           && parts.length >= 3
-          && !RESERVED_SUBDOMAINS.has(parts[0])
+          && !RESERVED_SUBDOMAINS.has(subdomainCandidate)
           && hostname.endsWith(BASE_DOMAIN);
 
         const isCustomDomain = !isDev
           && !hostname.endsWith(BASE_DOMAIN)
           && parts.length >= 2;
+
+        // Treat Vercel preview aliases as main app (not tenant workspace).
+        if (isVercelPreviewAlias || isVercelManagedHost) {
+          setTenant({ type: "main", branding: DEFAULT_BRANDING, features: {} });
+          setLoading(false);
+          return;
+        }
 
         if (!isSubdomain && !isCustomDomain) {
           setTenant({ type: "main", branding: DEFAULT_BRANDING, features: {} });
@@ -43,7 +53,7 @@ export function useTenantBootstrap() {
           return;
         }
 
-        const body = isSubdomain ? { subdomain: parts[0] } : { domain: hostname };
+        const body = isSubdomain ? { subdomain: subdomainCandidate } : { domain: hostname };
 
         const res = await fetch(`${SUPABASE_URL}/functions/v1/resolve-tenant`, {
           method: "POST",

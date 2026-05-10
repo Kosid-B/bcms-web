@@ -3,6 +3,9 @@ import React, { useCallback, useEffect, useState } from "react";
 import AuthModal from "./features/auth/AuthModal.jsx";
 import PaymentModal from "./features/billing/PaymentModal.jsx";
 import Dashboard from "./features/dashboard/Dashboard.jsx";
+import ContinuityStrategyPage from "./features/organization/ContinuityStrategyPage.jsx";
+import OrganizationFeaturePage from "./features/organization/OrganizationFeaturePage.jsx";
+import PersonnelContinuityPage from "./features/personnel/PersonnelContinuityPage.jsx";
 import WelcomePage from "./features/marketing/WelcomePage.jsx";
 import { RealtimeUpgradeModal, SuccessModal } from "./features/shared/SuccessModal.jsx";
 import { clearSession, supaLite } from "./lib/supa-lite.js";
@@ -18,6 +21,7 @@ export default function AppCore({ tenant }) {
   const [payBilling, setPayBilling] = useState("monthly");
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [rtUpgrade, setRtUpgrade] = useState(null);
+  const [mustChoosePlan, setMustChoosePlan] = useState(false);
 
   useEffect(() => {
     if (tenant?.type === "tenant") {
@@ -28,7 +32,7 @@ export default function AppCore({ tenant }) {
   const loadProfile = useCallback(async (userId, userEmail) => {
     const { data: profile } = await supaLite
       .from("profiles")
-      .select("full_name, org_id, organizations(name), subscriptions(plan,status)")
+      .select("full_name, role, access_level, department, org_id, organizations(name), subscriptions(plan,status)")
       .eq("id", userId)
       .single();
 
@@ -41,7 +45,11 @@ export default function AppCore({ tenant }) {
       email: userEmail,
       org: profile.organizations?.name ?? "—",
       plan,
+      subscriptionStatus: profile?.subscriptions?.[0]?.status ?? "trialing",
       orgId: profile.org_id,
+      role: profile.role ?? "member",
+      accessLevel: profile.access_level ?? "org",
+      department: profile.department ?? null,
     };
   }, []);
 
@@ -55,7 +63,8 @@ export default function AppCore({ tenant }) {
           if (u) {
             setUser(u);
             setActivePkg(u.plan !== "free" ? u.plan : "professional");
-            setView("dashboard");
+            setMustChoosePlan((u.plan ?? "free") === "free");
+            setView((u.plan ?? "free") === "free" ? "plan_gate" : "dashboard");
             setShowOnboarding(true);
           }
           return;
@@ -69,7 +78,8 @@ export default function AppCore({ tenant }) {
       if (u) {
         setUser(u);
         setActivePkg(u.plan !== "free" ? u.plan : "professional");
-        setView("dashboard");
+        setMustChoosePlan((u.plan ?? "free") === "free");
+        setView((u.plan ?? "free") === "free" ? "plan_gate" : "dashboard");
       }
     })();
   }, [loadProfile]);
@@ -112,6 +122,10 @@ export default function AppCore({ tenant }) {
         if (rec.plan && rec.plan !== activePkg) {
           setActivePkg(rec.plan);
           setUser((current) => current ? { ...current, plan: rec.plan } : current);
+          if (rec.plan !== "free") {
+            setMustChoosePlan(false);
+            setView("dashboard");
+          }
         }
       })
       .subscribe();
@@ -138,7 +152,9 @@ export default function AppCore({ tenant }) {
   const handleAuthSuccess = (u) => {
     setUser(u);
     setAuthModal(null);
-    setView("dashboard");
+    const freePlan = (u?.plan ?? "free") === "free";
+    setMustChoosePlan(freePlan);
+    setView(freePlan ? "plan_gate" : "dashboard");
 
     if (authModal === "register") {
       setShowOnboarding(true);
@@ -171,20 +187,140 @@ export default function AppCore({ tenant }) {
         />
       )}
 
-      {view === "dashboard" && user && (
-        <Dashboard
+      {user && !mustChoosePlan && (
+        <>
+          <div
+            style={{
+              position: "fixed",
+              top: 84,
+              right: 14,
+              zIndex: 32,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              background: "rgba(255,255,255,0.95)",
+              border: "1px solid #dbe5f5",
+              borderRadius: 12,
+              padding: 8,
+              boxShadow: "0 8px 24px rgba(14,38,74,0.15)",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setView("dashboard")}
+              style={{
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 10px",
+                background: view === "dashboard" ? "#1565c0" : "#eef4ff",
+                color: view === "dashboard" ? "#fff" : "#17335c",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Dashboard
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("personnel_continuity")}
+              style={{
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 10px",
+                background: view === "personnel_continuity" ? "#1565c0" : "#eef4ff",
+                color: view === "personnel_continuity" ? "#fff" : "#17335c",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Personnel
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("organization_feature")}
+              style={{
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 10px",
+                background: view === "organization_feature" ? "#1565c0" : "#eef4ff",
+                color: view === "organization_feature" ? "#fff" : "#17335c",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Organization
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("continuity_strategy")}
+              style={{
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 10px",
+                background: view === "continuity_strategy" ? "#1565c0" : "#eef4ff",
+                color: view === "continuity_strategy" ? "#fff" : "#17335c",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Strategy
+            </button>
+          </div>
+
+          {view === "dashboard" && (
+            <Dashboard
+              user={user}
+              pkg={activePkg}
+              onLogout={async () => {
+                await supaLite.auth.signOut();
+                clearSession();
+                setUser(null);
+                setView("welcome");
+                setShowOnboarding(false);
+              }}
+              onUpgrade={() => setPayModal({ pkg: "professional", billing: "monthly" })}
+              showOnboarding={showOnboarding}
+              onOnboardingDone={() => setShowOnboarding(false)}
+            />
+          )}
+        </>
+      )}
+
+      {view === "personnel_continuity" && user && !mustChoosePlan && (
+        <PersonnelContinuityPage
           user={user}
-          pkg={activePkg}
+          onBack={() => setView("dashboard")}
+        />
+      )}
+
+      {view === "organization_feature" && user && !mustChoosePlan && (
+        <OrganizationFeaturePage
+          user={user}
+          onBack={() => setView("dashboard")}
+        />
+      )}
+
+      {view === "continuity_strategy" && user && !mustChoosePlan && (
+        <ContinuityStrategyPage
+          user={user}
+          onBack={() => setView("dashboard")}
+        />
+      )}
+
+      {view === "plan_gate" && user && (
+        <PlanGate
+          selectedPkg={activePkg}
+          billing={payBilling}
+          onChangePkg={setActivePkg}
+          onChangeBilling={setPayBilling}
+          onContinue={() => setPayModal({ pkg: activePkg, billing: payBilling })}
           onLogout={async () => {
             await supaLite.auth.signOut();
             clearSession();
             setUser(null);
             setView("welcome");
-            setShowOnboarding(false);
+            setMustChoosePlan(false);
           }}
-          onUpgrade={() => setPayModal({ pkg: "professional", billing: "monthly" })}
-          showOnboarding={showOnboarding}
-          onOnboardingDone={() => setShowOnboarding(false)}
         />
       )}
 
@@ -227,5 +363,80 @@ export default function AppCore({ tenant }) {
         />
       )}
     </>
+  );
+}
+
+function PlanGate({
+  selectedPkg,
+  billing,
+  onChangePkg,
+  onChangeBilling,
+  onContinue,
+  onLogout,
+}) {
+  const packages = [
+    { id: "starter", name: "Starter", monthly: 2900, annual: 2320 },
+    { id: "professional", name: "Professional", monthly: 7900, annual: 6320 },
+    { id: "enterprise", name: "Enterprise", monthly: 19900, annual: 15920 },
+  ];
+
+  return (
+    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 20, background: "#f5f8ff" }}>
+      <div style={{ width: "100%", maxWidth: 860, background: "#fff", border: "1px solid #dbe5f5", borderRadius: 16, padding: 24 }}>
+        <h2 style={{ margin: 0, fontSize: 24 }}>เลือกแพ็กเกจก่อนเริ่มใช้งาน</h2>
+        <p style={{ marginTop: 8, color: "#4b5b78" }}>หลังสมัครสมาชิก ระบบต้องเลือกแพ็กเกจรายเดือนหรือรายปีเพื่อเปิดสิทธิ์การใช้งาน</p>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 14, marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => onChangeBilling("monthly")}
+            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #b8caeb", background: billing === "monthly" ? "#1565c0" : "#fff", color: billing === "monthly" ? "#fff" : "#17335c", cursor: "pointer" }}
+          >
+            รายเดือน
+          </button>
+          <button
+            type="button"
+            onClick={() => onChangeBilling("annual")}
+            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #b8caeb", background: billing === "annual" ? "#1565c0" : "#fff", color: billing === "annual" ? "#fff" : "#17335c", cursor: "pointer" }}
+          >
+            รายปี
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+          {packages.map((pkg) => {
+            const selected = selectedPkg === pkg.id;
+            const price = billing === "annual" ? pkg.annual : pkg.monthly;
+            return (
+              <button
+                key={pkg.id}
+                type="button"
+                onClick={() => onChangePkg(pkg.id)}
+                style={{ textAlign: "left", padding: 14, borderRadius: 12, border: selected ? "2px solid #1565c0" : "1px solid #dbe5f5", background: selected ? "#eef5ff" : "#fff", cursor: "pointer" }}
+              >
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#10294d" }}>{pkg.name}</div>
+                <div style={{ fontSize: 22, marginTop: 8, fontWeight: 800, color: "#1565c0" }}>
+                  ฿{price.toLocaleString()}
+                  <span style={{ fontSize: 12, color: "#4b5b78", marginLeft: 6 }}>{billing === "annual" ? "/เดือน (จ่ายรายปี)" : "/เดือน"}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 18, display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+          <button type="button" onClick={onLogout} style={{ background: "transparent", border: "none", color: "#52617c", cursor: "pointer" }}>
+            ออกจากระบบ
+          </button>
+          <button
+            type="button"
+            onClick={onContinue}
+            style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "#1565c0", color: "#fff", fontWeight: 700, cursor: "pointer" }}
+          >
+            ดำเนินการชำระเงิน
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
