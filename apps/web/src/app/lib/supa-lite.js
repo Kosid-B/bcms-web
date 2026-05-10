@@ -1,4 +1,10 @@
-import { SUPABASE_ANON, SUPABASE_URL } from "../config/platform";
+import { SUPABASE_ANON, SUPABASE_URL, hasSupabasePublicEnv } from "../config/platform";
+
+function ensureConfigured() {
+  if (hasSupabasePublicEnv()) return true;
+  console.error("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON in frontend environment.");
+  return false;
+}
 
 function saveSession(session) {
   try { localStorage.setItem("sb_session", JSON.stringify(session)); } catch (_) {}
@@ -35,6 +41,9 @@ class SupaQueryLite {
   }
 
   async _execute() {
+    if (!ensureConfigured()) {
+      return { data: null, error: { message: "Supabase environment is not configured." } };
+    }
     const query = [`select=${encodeURIComponent(this._select)}`, ...this._filters].join("&");
     const res = await fetch(`${this._url}/rest/v1/${this._table}?${query}`, {
       headers: {
@@ -72,6 +81,7 @@ export const supaLite = {
 
   auth: {
     async signOut() {
+      if (!ensureConfigured()) return { error: { message: "Supabase environment is not configured." } };
       await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
         method: "POST",
         headers: supaLite._headers(),
@@ -95,6 +105,7 @@ export const supaLite = {
     },
 
     async handleOAuthCallback() {
+      if (!ensureConfigured()) return null;
       const hash = window.location.hash;
       if (!hash.includes("access_token")) return null;
 
@@ -137,6 +148,10 @@ export const supaLite = {
         return this;
       },
       subscribe(statusCb) {
+        if (!ensureConfigured()) {
+          statusCb?.("CHANNEL_ERROR");
+          return this;
+        }
         const wsUrl = SUPABASE_URL.replace("https://", "wss://").replace("http://", "ws://")
           + `/realtime/v1/websocket?apikey=${SUPABASE_ANON}`;
 

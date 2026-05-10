@@ -6,6 +6,7 @@ import {
   RESERVED_SUBDOMAINS,
   SUPABASE_ANON,
   SUPABASE_URL,
+  hasSupabasePublicEnv,
 } from "../config/platform";
 
 const TenantContext = createContext(null);
@@ -30,6 +31,13 @@ export function useTenantBootstrap() {
         const subdomainCandidate = parts[0] || "";
         const isVercelPreviewAlias = /-projects$/i.test(subdomainCandidate);
         const isVercelManagedHost = hostname.endsWith(".vercel.app");
+
+        if (!hasSupabasePublicEnv()) {
+          console.warn("[TenantBootstrap] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON. Falling back to main mode.");
+          setTenant({ type: "main", branding: DEFAULT_BRANDING, features: {} });
+          setLoading(false);
+          return;
+        }
 
         const isSubdomain = !isDev
           && parts.length >= 3

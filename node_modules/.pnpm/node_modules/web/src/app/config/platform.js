@@ -16,9 +16,9 @@ export const DEFAULT_BRANDING = {
   sidebarBgColor: "#0D1B3E",
 };
 
-export const SUPABASE_URL =
-  import.meta.env.VITE_SUPABASE_URL || "https://pbtngbwbieskvmutshbz.supabase.co";
+export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+export const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON || "";
 
-export const SUPABASE_ANON =
-  import.meta.env.VITE_SUPABASE_ANON ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBidG5nYndiaWVza3ZtdXRzaGJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NjQzMjksImV4cCI6MjA4ODU0MDMyOX0.WKcovbk8tpYMJlBHK8aleP1fkjimxVj1oBl9Dvn7WVY";
+export function hasSupabasePublicEnv() {
+  return Boolean(SUPABASE_URL && SUPABASE_ANON);
+}

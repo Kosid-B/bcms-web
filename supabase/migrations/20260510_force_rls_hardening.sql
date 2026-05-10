@@ -1,0 +1,17 @@
+alter table if exists public.organizations force row level security;
+alter table if exists public.org_branding force row level security;
+alter table if exists public.profiles force row level security;
+alter table if exists public.subscriptions force row level security;
+alter table if exists public.payment_orders force row level security;
+alter table if exists public.plg_events force row level security;
+alter table if exists public.bia_processes force row level security;
+alter table if exists public.bc_plans force row level security;
+alter table if exists public.resources force row level security;
+alter table if exists public.process_resources force row level security;
+alter table if exists public.continuity_strategies force row level security;
+alter table if exists public.continuity_procedure_steps force row level security;
+alter table if exists public.org_departments force row level security;
+alter table if exists public.org_audit_logs force row level security;
+alter table if exists public.org_units force row level security;
+alter table if exists public.personnel_roles force row level security;
+alter table if exists public.personnel_members force row level security;

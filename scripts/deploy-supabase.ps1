@@ -51,6 +51,7 @@ Get-Content $envFile |
   }
 
 $functions = @(
+  "health",
   "line-webhook",
   "resolve-tenant",
   "payment-webhook",
@@ -61,7 +62,7 @@ $functions = @(
 
 foreach ($fn in $functions) {
   Write-Host "Deploying function: $fn" -ForegroundColor Cyan
-  if ($fn -eq "line-webhook") {
+  if ($fn -eq "line-webhook" -or $fn -eq "health") {
     Invoke-Supabase functions deploy $fn --project-ref $ProjectRef --no-verify-jwt --workdir "$root\supabase"
   } else {
     Invoke-Supabase functions deploy $fn --project-ref $ProjectRef --workdir "$root\supabase"
