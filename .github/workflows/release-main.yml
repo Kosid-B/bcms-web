@@ -1,49 +1,119 @@
-deploy_vercel:
-  name: Deploy Vercel Production
-  runs-on: ubuntu-latest
-  needs: migrate_supabase
-  env:
-    VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-    VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-  steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+name: Release Main
 
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        version: 10.33.2
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
-    - name: Setup Node
-      uses: actions/setup-node@v4
-      with:
-        node-version: 22
-        package-manager-cache: false
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-    - name: Install
-      run: pnpm install --frozen-lockfile
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
-    - name: Validate Vercel secrets
-      run: |
-        if [ -z "${{ secrets.VERCEL_TOKEN }}" ] || [ -z "${{ secrets.VERCEL_ORG_ID }}" ] || [ -z "${{ secrets.VERCEL_PROJECT_ID }}" ]; then
-          echo "Missing one or more Vercel secrets"
-          exit 1
-        fi
+jobs:
+  verify:
+    name: Verify Web
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Ensure clean Vercel state
-      run: rm -rf .vercel && mkdir -p .vercel
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
 
-    - name: Write Vercel project binding
-      run: |
-        printf '{"orgId":"%s","projectId":"%s","projectName":"bcms-web"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          package-manager-cache: false
 
-    - name: Verify Vercel project binding file
-      run: |
-        test -f .vercel/project.json
-        cat .vercel/project.json
+      - name: Install
+        run: pnpm install --frozen-lockfile
 
-    - name: Build Vercel artifacts
-      run: npx vercel build --prod --yes --cwd . --token "${{ secrets.VERCEL_TOKEN }}"
+      - name: Lint
+        run: pnpm -C apps/web lint
 
-    - name: Deploy to Vercel (production)
-      run: npx vercel deploy --prebuilt --prod --yes --cwd . --token "${{ secrets.VERCEL_TOKEN }}"
+      - name: Build
+        run: pnpm build
+
+  migrate_supabase:
+    name: Migrate Supabase
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.95.2
+
+      - name: Validate Supabase DB URL secret
+        run: |
+          if [ -z "${{ secrets.SUPABASE_DB_URL }}" ]; then
+            echo "Missing SUPABASE_DB_URL secret"
+            exit 1
+          fi
+
+      - name: Push all migrations
+        run: supabase db push --workdir ./supabase --db-url "${{ secrets.SUPABASE_DB_URL }}"
+
+      - name: Verify BCP automate objects
+        run: |
+          supabase db query "select (to_regclass('public.continuity_strategies') is not null) as has_continuity_strategies, (to_regclass('public.continuity_procedure_steps') is not null) as has_continuity_procedure_steps, (to_regprocedure('public.generate_bcp_automate(uuid,uuid,text)') is not null) as has_generate_bcp_automate, (to_regprocedure('public.evaluate_bcp_readiness(uuid)') is not null) as has_evaluate_bcp_readiness;" --workdir ./supabase --db-url "${{ secrets.SUPABASE_DB_URL }}" -o csv
+
+  deploy_vercel:
+    name: Deploy Vercel Production
+    runs-on: ubuntu-latest
+    needs: migrate_supabase
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Vercel secrets
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ] || [ -z "${{ secrets.VERCEL_ORG_ID }}" ] || [ -z "${{ secrets.VERCEL_PROJECT_ID }}" ]; then
+            echo "Missing one or more Vercel secrets"
+            exit 1
+          fi
+
+      - name: Ensure clean Vercel state
+        run: rm -rf .vercel && mkdir -p .vercel
+
+      - name: Write Vercel project binding
+        run: |
+          printf '{"orgId":"%s","projectId":"%s","projectName":"bcms-web"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+
+      - name: Verify Vercel project binding file
+        run: |
+          test -f .vercel/project.json
+          cat .vercel/project.json
+
+      - name: Build Vercel artifacts
+        run: npx vercel build --prod --yes --cwd . --token "${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Deploy to Vercel (production)
+        run: npx vercel deploy --prebuilt --prod --yes --cwd . --token "${{ secrets.VERCEL_TOKEN }}"
