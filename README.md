@@ -181,4 +181,4 @@ Add these in GitHub repo settings -> Secrets and variables -> Actions:
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
 
-After secrets are set, every merge/push to `main` will release in the correct order and prevent frontend-backend mismatch.
+After secrets are set, every merge/push to `main` will release in the correct order and prevent frontend-backend mismatch.Yes
