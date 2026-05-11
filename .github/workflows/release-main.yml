@@ -93,19 +93,11 @@ jobs:
       - name: Ensure clean Vercel state
         run: rm -rf .vercel && mkdir -p .vercel
 
-<<<<<<< HEAD
-      - name: Link Vercel project (non-interactive)
-        run: npx vercel link --yes --project bcms-web --scope kosids-projects --token "${{ secrets.VERCEL_TOKEN }}"
-
-      - name: Pull Vercel project settings
-        run: npx vercel pull --yes --environment=production --scope kosids-projects --token "${{ secrets.VERCEL_TOKEN }}"
-=======
       - name: Write Vercel project binding
         run: |
           cat > .vercel/project.json << 'EOF'
           {"orgId":"${{ secrets.VERCEL_ORG_ID }}","projectId":"${{ secrets.VERCEL_PROJECT_ID }}","projectName":"bcms-web"}
           EOF
->>>>>>> 414ad17 (ci: use explicit vercel project binding in deploy)
 
       - name: Build Vercel artifacts
         run: npx vercel build --prod --token "${{ secrets.VERCEL_TOKEN }}"
