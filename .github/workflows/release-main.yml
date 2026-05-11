@@ -30,7 +30,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'pnpm'
+          package-manager-cache: false
 
       - name: Install
         run: pnpm install --frozen-lockfile
@@ -72,10 +72,6 @@ jobs:
     name: Deploy Vercel Production
     runs-on: ubuntu-latest
     needs: migrate_supabase
-    environment: production
-    env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,19 +85,27 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'pnpm'
+          package-manager-cache: false
 
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Ensure no stale Vercel link
-        run: rm -rf .vercel
+      - name: Ensure clean Vercel state
+        run: rm -rf .vercel && mkdir -p .vercel
 
+<<<<<<< HEAD
       - name: Link Vercel project (non-interactive)
         run: npx vercel link --yes --project bcms-web --scope kosids-projects --token "${{ secrets.VERCEL_TOKEN }}"
 
       - name: Pull Vercel project settings
         run: npx vercel pull --yes --environment=production --scope kosids-projects --token "${{ secrets.VERCEL_TOKEN }}"
+=======
+      - name: Write Vercel project binding
+        run: |
+          cat > .vercel/project.json << 'EOF'
+          {"orgId":"${{ secrets.VERCEL_ORG_ID }}","projectId":"${{ secrets.VERCEL_PROJECT_ID }}","projectName":"bcms-web"}
+          EOF
+>>>>>>> 414ad17 (ci: use explicit vercel project binding in deploy)
 
       - name: Build Vercel artifacts
         run: npx vercel build --prod --token "${{ secrets.VERCEL_TOKEN }}"
