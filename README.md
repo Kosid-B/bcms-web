@@ -168,7 +168,7 @@ This repository now includes:
 Flow on every push to `main`:
 
 1. Verify web app (`pnpm lint` + `pnpm build`)
-2. Push Supabase migrations
+2. Push Supabase migrations.
 3. Verify BCP automate database objects exist
 4. Deploy Vercel production
 
