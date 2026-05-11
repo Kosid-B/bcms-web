@@ -30,7 +30,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          package-manager-cache: false
+          cache: 'pnpm'
 
       - name: Install
         run: pnpm install --frozen-lockfile
@@ -54,25 +54,16 @@ jobs:
         with:
           version: 2.95.2
 
-      - name: Validate Supabase DB URL secret
-        run: |
-          if [ -z "${{ secrets.SUPABASE_DB_URL }}" ]; then
-            echo "Missing SUPABASE_DB_URL secret"
-            exit 1
-          fi
-
       - name: Push all migrations
         run: supabase db push --workdir ./supabase --db-url "${{ secrets.SUPABASE_DB_URL }}"
-
-      - name: Verify BCP automate objects
-        run: |
-          supabase db query "select (to_regclass('public.continuity_strategies') is not null) as has_continuity_strategies, (to_regclass('public.continuity_procedure_steps') is not null) as has_continuity_procedure_steps, (to_regprocedure('public.generate_bcp_automate(uuid,uuid,text)') is not null) as has_generate_bcp_automate, (to_regprocedure('public.evaluate_bcp_readiness(uuid)') is not null) as has_evaluate_bcp_readiness;" --workdir ./supabase --db-url "${{ secrets.SUPABASE_DB_URL }}" -o csv
 
   deploy_vercel:
     name: Deploy Vercel Production
     runs-on: ubuntu-latest
     needs: migrate_supabase
+    environment: production
     env:
+      # ใช้ค่า ID ที่คุณระบุมา (ใส่ไว้ใน GitHub Secrets)
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
@@ -88,32 +79,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          package-manager-cache: false
+          cache: 'pnpm'
 
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Validate Vercel secrets
-        run: |
-          if [ -z "${{ secrets.VERCEL_TOKEN }}" ] || [ -z "${{ secrets.VERCEL_ORG_ID }}" ] || [ -z "${{ secrets.VERCEL_PROJECT_ID }}" ]; then
-            echo "Missing one or more Vercel secrets"
-            exit 1
-          fi
+      - name: Pull Vercel Project Settings
+        # แก้ปัญหา "Could not retrieve Project Settings" โดยการดึงไฟล์คอนฟิกมาสร้างใน Runner
+        run: npx vercel pull --yes --environment=production --token "${{ secrets.VERCEL_TOKEN }}"
 
-      - name: Ensure clean Vercel state
-        run: rm -rf .vercel && mkdir -p .vercel
+      - name: Build Vercel Artifacts
+        # เมื่อมีไฟล์จากการ Pull แล้ว ขั้นตอนนี้จะรู้จัก Project ทันที
+        run: npx vercel build --prod --token "${{ secrets.VERCEL_TOKEN }}"
 
-      - name: Write Vercel project binding
-        run: |
-          printf '{"orgId":"%s","projectId":"%s","projectName":"bcms-web"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
-
-      - name: Verify Vercel project binding file
-        run: |
-          test -f .vercel/project.json
-          cat .vercel/project.json
-
-      - name: Build Vercel artifacts
-        run: npx vercel build --prod --yes --cwd . --token "${{ secrets.VERCEL_TOKEN }}"
-
-      - name: Deploy to Vercel (production)
-        run: npx vercel deploy --prebuilt --prod --yes --cwd . --token "${{ secrets.VERCEL_TOKEN }}"
+      - name: Deploy to Vercel
+        # ส่งไฟล์ที่ Build เสร็จแล้วขึ้นไป (เสถียรและเร็วที่สุด)
+        run: npx vercel deploy --prebuilt --prod --token "${{ secrets.VERCEL_TOKEN }}"
