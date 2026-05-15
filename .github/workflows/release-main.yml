@@ -55,7 +55,17 @@ jobs:
           version: 2.95.2
 
       - name: Push all migrations
-        run: supabase db push --workdir ./supabase --db-url "${{ secrets.SUPABASE_DB_URL }}"
+        run: supabase db push --db-url "${{ secrets.SUPABASE_DB_URL }}"
+
+      - name: Verify BCP automate objects
+        run: |
+          supabase db query "
+          SELECT 
+            (to_regclass('public.continuity_strategies') IS NOT NULL) as has_continuity_strategies,
+            (to_regclass('public.continuity_procedure_steps') IS NOT NULL) as has_continuity_procedure_steps,
+            (to_regprocedure('public.generate_bcp_automate(uuid,uuid,text)') IS NOT NULL) as has_generate_bcp_automate,
+            (to_regprocedure('public.evaluate_bcp_readiness(uuid)') IS NOT NULL) as has_evaluate_bcp_readiness;
+          " --db-url "${{ secrets.SUPABASE_DB_URL }}" -o csv
 
   deploy_vercel:
     name: Deploy Vercel Production
@@ -63,35 +73,17 @@ jobs:
     needs: migrate_supabase
     environment: production
     env:
-      # ใช้ค่า ID ที่คุณระบุมา (ใส่ไว้ใน GitHub Secrets)
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.2
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'pnpm'
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
       - name: Pull Vercel Project Settings
-        # แก้ปัญหา "Could not retrieve Project Settings" โดยการดึงไฟล์คอนฟิกมาสร้างใน Runner
-        run: npx vercel pull --yes --environment=production --token "${{ secrets.VERCEL_TOKEN }}"
+        run: npx vercel pull --yes --environment=production --token "${{ secrets.VERCEL_TOKEN }}" --scope "${{ env.VERCEL_ORG_ID }}" --project "${{ env.VERCEL_PROJECT_ID }}"
 
       - name: Build Vercel Artifacts
-        # เมื่อมีไฟล์จากการ Pull แล้ว ขั้นตอนนี้จะรู้จัก Project ทันที
-        run: npx vercel build --prod --token "${{ secrets.VERCEL_TOKEN }}"
+        run: npx vercel build --prod --token "${{ secrets.VERCEL_TOKEN }}" --scope "${{ env.VERCEL_ORG_ID }}"
 
       - name: Deploy to Vercel
-        # ส่งไฟล์ที่ Build เสร็จแล้วขึ้นไป (เสถียรและเร็วที่สุด)
-        run: npx vercel deploy --prebuilt --prod --token "${{ secrets.VERCEL_TOKEN }}"
+        run: npx vercel deploy --prebuilt --prod --token "${{ secrets.VERCEL_TOKEN }}" --scope "${{ env.VERCEL_ORG_ID }}"
