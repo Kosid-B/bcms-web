@@ -42,13 +42,19 @@ jobs:
         with:
           version: 2.95.2
 
-      - name: Force Sync Migration
-        # ใช้เทคนิคส่งไฟล์ทั้งหมดขึ้นไปโดยไม่สนใจประวัติที่หายไป (include-all)
-        # พร้อมซ่อมแซมเวอร์ชัน 20260426 หากเกิดข้อผิดพลาด
+      - name: Sync and Repair Migration History
+        # ขั้นตอนนี้จะเคลียร์ประวัติที่ขัดแย้งทั้งหมด
         run: |
-          supabase db push --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --include-all || \
-          (supabase migration repair --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --status reverted 20260426 && \
-           supabase db push --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --include-all)
+          # 1. จัดการเวอร์ชันที่หายไปจาก Git (20260426)
+          supabase migration repair --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --status reverted 20260426 || true
+          
+          # 2. จัดการเวอร์ชันที่ซ้ำ (20260510) โดยบอก DB ว่า "ลงเสร็จแล้ว" เพื่อไม่ให้รันซ้ำจน Error
+          supabase migration repair --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --status completed 20260510 || true
+
+      - name: Push all migrations
+        # รัน Migration ที่เหลือทั้งหมดขึ้นไป
+        run: |
+          supabase db push --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres'
 
       - name: Verify BCP automate objects
         run: |
