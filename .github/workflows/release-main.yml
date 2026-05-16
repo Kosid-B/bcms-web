@@ -6,9 +6,6 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   verify:
     name: Verify Web
@@ -41,34 +38,27 @@ jobs:
         uses: supabase/setup-cli@v1
         with:
           version: 2.95.2
-
-      - name: Sync and Repair History
+      - name: Sync and Repair
         run: |
           supabase migration repair --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --status completed 20260426 || true
           supabase migration repair --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --status completed 20260510 || true
-
       - name: Push migrations
         run: |
-          supabase db push --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --include-all || echo "Migrations already in sync"
+          supabase db push --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --include-all || echo "Already in sync"
 
   deploy_vercel:
     name: Deploy Vercel Production
     runs-on: ubuntu-latest
     needs: migrate_supabase
     if: always()
-    environment: production
-    env:
-      VERCEL_ORG_ID: kosid-btcs-projects
-      VERCEL_PROJECT_ID: prj_YGK7XWXwZpLq6kAhF1alYZCNwTaf
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Pull Vercel Project Settings
-        run: npx vercel pull --yes --environment=production --token "${{ secrets.VERCEL_TOKEN }}" --scope "${{ env.VERCEL_ORG_ID }}" --project "${{ env.VERCEL_PROJECT_ID }}"
-
-      - name: Build Vercel Artifacts
-        run: npx vercel build --prod --token "${{ secrets.VERCEL_TOKEN }}" --scope "${{ env.VERCEL_ORG_ID }}"
-
       - name: Deploy to Vercel
-        run: npx vercel deploy --prebuilt --prod --token "${{ secrets.VERCEL_TOKEN }}" --scope "${{ env.VERCEL_ORG_ID }}"
+        # เราจะไม่ระบุ --scope หรือ --project ในคำสั่งเลย
+        # ระบบจะอ่านจากไฟล์ .vercel/project.json ที่เรา Force Push ขึ้นไปเอง
+        run: |
+          npx vercel pull --yes --environment=production --token "${{ secrets.VERCEL_TOKEN }}"
+          npx vercel build --prod --token "${{ secrets.VERCEL_TOKEN }}"
+          npx vercel deploy --prebuilt --prod --token "${{ secrets.VERCEL_TOKEN }}"
