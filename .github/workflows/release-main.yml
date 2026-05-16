@@ -54,10 +54,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Deploy to Vercel
-        # เราจะไม่ระบุ --scope หรือ --project ในคำสั่งเลย
-        # ระบบจะอ่านจากไฟล์ .vercel/project.json ที่เรา Force Push ขึ้นไปเอง
         run: |
           npx vercel pull --yes --environment=production --token "${{ secrets.VERCEL_TOKEN }}"
           npx vercel build --prod --token "${{ secrets.VERCEL_TOKEN }}"
