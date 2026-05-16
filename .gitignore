@@ -1,2 +1,71 @@
-# .vercel
+# --- Dependencies ---
+node_modules
+/.pnpm-debug.log*
+.pnpm-store
+
+# --- Next.js Build Outputs ---
+.next/
+out/
+build/
+
+# --- Environment Variables (SECURITY CRITICAL) ---
+# ห้ามเอาไฟล์เหล่านี้ขึ้น GitHub เด็ดขาด
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 .env*.local
+
+# --- Vercel Specific ---
+# เก็บ project.json ไว้ได้ (ถ้าไม่มีความลับ) แต่ห้ามเก็บไฟล์ env
+.vercel/.env.*.local
+.vercel/project.json.bak
+# หากต้องการความปลอดภัยสูงสุดให้เอา .vercel/ ออกทั้งหมด ยกเว้น project.json
+# .vercel/ 
+
+# --- Supabase Specific ---
+supabase/.temp/
+supabase/migrations/.DS_Store
+.x-token
+
+# --- OS Metadata ---
+.DS_Store
+Thumbs.db
+*.com
+*.class
+*.exe
+*.dll
+*.so
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# --- Log files ---
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- Editor and IDEs ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.project
+.settings/
+
+# --- Testing ---
+/coverage
+.nyc_output
+
+# --- Temp files ---
+refresh_github.txt
+temp/
+tmp/
