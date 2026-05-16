@@ -43,18 +43,15 @@ jobs:
           version: 2.95.2
 
       - name: Sync and Repair Migration History
-        # ขั้นตอนนี้จะเคลียร์ประวัติที่ขัดแย้งทั้งหมด
+        # เคลียร์ประวัติที่เคยพยายามรันแต่ไม่สำเร็จ เพื่อให้การ Push ใหม่สะอาดที่สุด
         run: |
-          # 1. จัดการเวอร์ชันที่หายไปจาก Git (20260426)
           supabase migration repair --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --status reverted 20260426 || true
-          
-          # 2. จัดการเวอร์ชันที่ซ้ำ (20260510) โดยบอก DB ว่า "ลงเสร็จแล้ว" เพื่อไม่ให้รันซ้ำจน Error
           supabase migration repair --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --status completed 20260510 || true
 
       - name: Push all migrations
-        # รัน Migration ที่เหลือทั้งหมดขึ้นไป
+        # ใช้ --include-all เพื่อบังคับให้รันไฟล์ที่ระบบตรวจพบว่าตกหล่นอยู่
         run: |
-          supabase db push --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres'
+          supabase db push --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --include-all
 
       - name: Verify BCP automate objects
         run: |
