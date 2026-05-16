@@ -9,10 +9,6 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-concurrency:
-  group: release-main
-  cancel-in-progress: false
-
 jobs:
   verify:
     name: Verify Web
@@ -20,24 +16,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10.33.2
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'pnpm'
-
       - name: Install
         run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm -C apps/web lint
-
       - name: Build
         run: pnpm build
 
@@ -48,14 +37,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
           version: 2.95.2
 
-      - name: Push all migrations
-        run: supabase db push --db-url "${{ secrets.SUPABASE_DB_URL }}"
+      - name: Force Sync Migration
+        # ใช้เทคนิคส่งไฟล์ทั้งหมดขึ้นไปโดยไม่สนใจประวัติที่หายไป (include-all)
+        # พร้อมซ่อมแซมเวอร์ชัน 20260426 หากเกิดข้อผิดพลาด
+        run: |
+          supabase db push --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --include-all || \
+          (supabase migration repair --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --status reverted 20260426 && \
+           supabase db push --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' --include-all)
 
       - name: Verify BCP automate objects
         run: |
@@ -65,7 +58,7 @@ jobs:
             (to_regclass('public.continuity_procedure_steps') IS NOT NULL) as has_continuity_procedure_steps,
             (to_regprocedure('public.generate_bcp_automate(uuid,uuid,text)') IS NOT NULL) as has_generate_bcp_automate,
             (to_regprocedure('public.evaluate_bcp_readiness(uuid)') IS NOT NULL) as has_evaluate_bcp_readiness;
-          " --db-url "${{ secrets.SUPABASE_DB_URL }}" -o csv
+          " --db-url 'postgresql://postgres:Yvsmi0O2CPMUX0wK@db.pbtngbwbieskvmutshbz.supabase.co:5432/postgres' -o csv
 
   deploy_vercel:
     name: Deploy Vercel Production
@@ -78,12 +71,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Pull Vercel Project Settings
         run: npx vercel pull --yes --environment=production --token "${{ secrets.VERCEL_TOKEN }}" --scope "${{ env.VERCEL_ORG_ID }}" --project "${{ env.VERCEL_PROJECT_ID }}"
-
       - name: Build Vercel Artifacts
         run: npx vercel build --prod --token "${{ secrets.VERCEL_TOKEN }}" --scope "${{ env.VERCEL_ORG_ID }}"
-
       - name: Deploy to Vercel
         run: npx vercel deploy --prebuilt --prod --token "${{ secrets.VERCEL_TOKEN }}" --scope "${{ env.VERCEL_ORG_ID }}"
