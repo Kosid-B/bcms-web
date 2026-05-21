@@ -23,6 +23,8 @@ class SupaQueryLite {
     this._filters = [];
     this._select = "*";
     this._single = false;
+    this._mutation = null;
+    this._execution = null;
   }
 
   select(cols) {
@@ -37,10 +39,43 @@ class SupaQueryLite {
 
   single() {
     this._single = true;
-    return this._execute();
+    return this.execute();
+  }
+
+  insert(payload) {
+    this._mutation = { method: "POST", payload };
+    return this;
+  }
+
+  update(payload) {
+    this._mutation = { method: "PATCH", payload };
+    return this;
+  }
+
+  execute() {
+    if (!this._execution) {
+      this._execution = this._execute();
+    }
+    return this._execution;
+  }
+
+  then(onFulfilled, onRejected) {
+    return this.execute().then(onFulfilled, onRejected);
+  }
+
+  catch(onRejected) {
+    return this.execute().catch(onRejected);
+  }
+
+  finally(onFinally) {
+    return this.execute().finally(onFinally);
   }
 
   async _execute() {
+    if (this._mutation) {
+      return this._mutate(this._mutation.method, this._mutation.payload);
+    }
+    
     if (!ensureConfigured()) {
       return { data: null, error: { message: "Supabase environment is not configured." } };
     }
@@ -52,6 +87,34 @@ class SupaQueryLite {
         Authorization: `Bearer ${this._getToken() ?? this._key}`,
         Prefer: this._single ? "return=representation" : "",
       },
+    });
+
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: data };
+
+    if (this._single) {
+      return { data: Array.isArray(data) ? (data[0] ?? null) : data, error: null };
+    }
+
+    return { data, error: null };
+  }
+
+  async _mutate(method, payload) {
+    if (!ensureConfigured()) {
+      return { data: null, error: { message: "Supabase environment is not configured." } };
+    }
+
+    const parts = [`select=${encodeURIComponent(this._select)}`, ...this._filters];
+    const query = parts.length ? `?${parts.join("&")}` : "";
+    const res = await fetch(`${this._url}/rest/v1/${this._table}${query}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: this._key,
+        Authorization: `Bearer ${this._getToken() ?? this._key}`,
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(payload),
     });
 
     const data = await res.json();

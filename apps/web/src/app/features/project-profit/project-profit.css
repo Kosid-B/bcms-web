@@ -1,0 +1,79 @@
+.project-profit-app {
+  min-height: 100vh;
+  padding: 32px 20px;
+  background: linear-gradient(180deg, #f4f1e8 0%, #ffffff 100%);
+  color: #1f2933;
+  font-family: "Segoe UI", sans-serif;
+}
+
+.project-profit-hero,
+.project-profit-metrics,
+.project-profit-section-card {
+  width: min(100%, 960px);
+  margin: 0 auto 24px;
+}
+
+.project-profit-hero h1 {
+  margin: 0 0 16px;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.project-profit-eyebrow {
+  margin: 0 0 8px;
+  color: #9a3412;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.project-profit-nav {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.project-profit-nav button {
+  border: 1px solid #d6c7a6;
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: #fffdf8;
+  color: #1f2933;
+  font: inherit;
+}
+
+.project-profit-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.project-profit-metric-card,
+.project-profit-section-card {
+  border: 1px solid #eadfcb;
+  border-radius: 20px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 30px rgba(148, 163, 184, 0.12);
+}
+
+.project-profit-metric-card p,
+.project-profit-section-card p {
+  margin: 0;
+}
+
+.project-profit-metric-label {
+  color: #52606d;
+  font-size: 0.95rem;
+}
+
+.project-profit-metric-value {
+  margin-top: 8px;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.project-profit-section-card h2 {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+}
