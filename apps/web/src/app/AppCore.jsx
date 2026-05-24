@@ -32,20 +32,31 @@ export default function AppCore({ tenant }) {
   const loadProfile = useCallback(async (userId, userEmail) => {
     const { data: profile } = await supaLite
       .from("profiles")
-      .select("full_name, role, access_level, department, org_id, organizations(name), subscriptions(plan,status)")
+      .select("full_name, role, access_level, department, org_id, organizations(name), subscriptions(plan,status,trial_ends_at)")
       .eq("id", userId)
       .single();
 
     if (!profile) return null;
 
-    const plan = profile?.subscriptions?.[0]?.plan ?? "free";
+    const sub = profile?.subscriptions?.[0] || {};
+    const plan = sub.plan ?? "free";
+    const status = sub.status ?? "trialing";
+    const trialEndsAt = sub.trial_ends_at;
+
+    // Allow new users on trial immediately; enforce expiry only when a trial end date exists
+    const isTrialValid = plan === "free"
+      && status === "trialing"
+      && (!trialEndsAt || new Date(trialEndsAt) > new Date());
+
     return {
       id: userId,
       name: profile.full_name ?? userEmail?.split("@")[0] ?? "ผู้ใช้",
       email: userEmail,
       org: profile.organizations?.name ?? "—",
       plan,
-      subscriptionStatus: profile?.subscriptions?.[0]?.status ?? "trialing",
+      subscriptionStatus: status,
+      trialEndsAt,
+      isTrialValid,
       orgId: profile.org_id,
       role: profile.role ?? "member",
       accessLevel: profile.access_level ?? "org",
@@ -55,31 +66,34 @@ export default function AppCore({ tenant }) {
 
   useEffect(() => {
     (async () => {
-      if (window.location.hash.includes("access_token")) {
-        const result = await supaLite.auth.handleOAuthCallback();
-        if (result?.user) {
-          await new Promise((resolve) => setTimeout(resolve, 1200));
-          const u = await loadProfile(result.user.id, result.user.email);
-          if (u) {
-            setUser(u);
-            setActivePkg(u.plan !== "free" ? u.plan : "professional");
-            setMustChoosePlan((u.plan ?? "free") === "free");
-            setView((u.plan ?? "free") === "free" ? "plan_gate" : "dashboard");
-            setShowOnboarding(true);
-          }
-          return;
-        }
+      // Restore existing session
+      const { data: { session } } = await supaLite.auth.getSession();
+      const currentSession = session;
+      
+      if (!currentSession?.user && !currentSession?.access_token) return;
+
+      // Extract user ID from session if user object is missing (common in OAuth hash)
+      let userId = currentSession.user?.id;
+      let userEmail = currentSession.user?.email;
+
+      if (!userId && currentSession.access_token) {
+        // If we only have the token, we can get the user info from Supabase
+        const { data: { user: authUser } } = await supaLite.auth.getUser();
+        userId = authUser?.id;
+        userEmail = authUser?.email;
       }
 
-      const { data: { session } } = await supaLite.auth.getSession();
-      if (!session?.user) return;
+      if (!userId) return;
 
-      const u = await loadProfile(session.user.id, session.user.email);
+      const u = await loadProfile(userId, userEmail);
       if (u) {
         setUser(u);
         setActivePkg(u.plan !== "free" ? u.plan : "professional");
-        setMustChoosePlan((u.plan ?? "free") === "free");
-        setView((u.plan ?? "free") === "free" ? "plan_gate" : "dashboard");
+        
+        // Block only if they have no valid trial and are still on free plan
+        const blocked = u.plan === "free" && !u.isTrialValid;
+        setMustChoosePlan(blocked);
+        setView(blocked ? "plan_gate" : "dashboard");
       }
     })();
   }, [loadProfile]);
@@ -152,9 +166,11 @@ export default function AppCore({ tenant }) {
   const handleAuthSuccess = (u) => {
     setUser(u);
     setAuthModal(null);
-    const freePlan = (u?.plan ?? "free") === "free";
-    setMustChoosePlan(freePlan);
-    setView(freePlan ? "plan_gate" : "dashboard");
+    
+    // Allow access if they have a valid trial
+    const blocked = u.plan === "free" && !u.isTrialValid;
+    setMustChoosePlan(blocked);
+    setView(blocked ? "plan_gate" : "dashboard");
 
     if (authModal === "register") {
       setShowOnboarding(true);
