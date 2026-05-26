@@ -29,10 +29,31 @@ export default function AppCore({ tenant }) {
     }
   }, [tenant]);
 
+  const canAccessApp = useCallback((sub, orgId) => {
+    if (!sub) return false;
+    if (orgId === "00000000-0000-0000-0000-000000000000") return false;
+
+    const status = String(sub.status || "").toLowerCase();
+    const plan = String(sub.plan || "free").toLowerCase();
+    const now = Date.now();
+    const trialEndsAt = sub.trial_ends_at ? new Date(sub.trial_ends_at).getTime() : null;
+    const periodEndsAt = sub.current_period_end ? new Date(sub.current_period_end).getTime() : null;
+
+    if (status === "active") return true;
+
+    if (plan === "free" && status === "trialing") {
+      if (!trialEndsAt) return true;
+      return trialEndsAt > now;
+    }
+
+    if (status === "past_due" && periodEndsAt && periodEndsAt > now) return true;
+    return false;
+  }, []);
+
   const loadProfile = useCallback(async (userId, userEmail) => {
     const { data: profile } = await supaLite
       .from("profiles")
-      .select("full_name, role, access_level, department, org_id, organizations(name), subscriptions(plan,status,trial_ends_at)")
+      .select("full_name, role, access_level, department, org_id, organizations(name), subscriptions(plan,status,trial_ends_at,current_period_end)")
       .eq("id", userId)
       .single();
 
@@ -43,10 +64,8 @@ export default function AppCore({ tenant }) {
     const status = sub.status ?? "trialing";
     const trialEndsAt = sub.trial_ends_at;
 
-    // Allow new users on trial immediately; enforce expiry only when a trial end date exists
-    const isTrialValid = plan === "free"
-      && status === "trialing"
-      && (!trialEndsAt || new Date(trialEndsAt) > new Date());
+    const currentPeriodEnd = sub.current_period_end ?? null;
+    const canAccess = canAccessApp(sub, profile.org_id);
 
     return {
       id: userId,
@@ -56,13 +75,14 @@ export default function AppCore({ tenant }) {
       plan,
       subscriptionStatus: status,
       trialEndsAt,
-      isTrialValid,
+      currentPeriodEnd,
+      canAccess,
       orgId: profile.org_id,
       role: profile.role ?? "member",
       accessLevel: profile.access_level ?? "org",
       department: profile.department ?? null,
     };
-  }, []);
+  }, [canAccessApp]);
 
   useEffect(() => {
     (async () => {
@@ -90,8 +110,7 @@ export default function AppCore({ tenant }) {
         setUser(u);
         setActivePkg(u.plan !== "free" ? u.plan : "professional");
         
-        // Block only if they have no valid trial and are still on free plan
-        const blocked = u.plan === "free" && !u.isTrialValid;
+        const blocked = !u.canAccess;
         setMustChoosePlan(blocked);
         setView(blocked ? "plan_gate" : "dashboard");
       }
@@ -167,8 +186,12 @@ export default function AppCore({ tenant }) {
     setUser(u);
     setAuthModal(null);
     
-    // Allow access if they have a valid trial
-    const blocked = u.plan === "free" && !u.isTrialValid;
+    const fallbackAccess =
+      u.subscriptionStatus === "active" ||
+      (u.plan === "free" &&
+        u.subscriptionStatus === "trialing" &&
+        (!u.trialEndsAt || new Date(u.trialEndsAt) > new Date()));
+    const blocked = !(u.canAccess ?? fallbackAccess);
     setMustChoosePlan(blocked);
     setView(blocked ? "plan_gate" : "dashboard");
 
