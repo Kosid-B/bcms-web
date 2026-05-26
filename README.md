@@ -16,7 +16,7 @@ This workspace now includes the missing backend pieces needed to run the current
 ## Public deployment flow
 
 1. Create a Supabase project.
-2. Run the SQL migration in `supabase/migrations/20260425_public_launch.sql`.
+2. Run the SQL migrations in `supabase/migrations/*.sql` (The `payment-slips` bucket is created automatically).
 3. Deploy the edge functions from the `supabase/functions` directory.
 4. Create these function secrets in Supabase:
    - `SUPABASE_URL`

@@ -167,26 +167,50 @@ export const supaLite = {
       return { data: { session: null }, error: null };
     },
 
-    async handleOAuthCallback() {
-      if (!ensureConfigured()) return null;
-      const hash = window.location.hash;
-      if (!hash.includes("access_token")) return null;
-
-      const params = new URLSearchParams(hash.replace("#", "?"));
-      const token = params.get("access_token");
-      const refresh = params.get("refresh_token");
-      if (!token) return null;
-
-      supaLite._token = token;
-      const session = { access_token: token, refresh_token: refresh };
-      saveSession(session);
-      window.history.replaceState({}, "", window.location.pathname);
+    async getUser() {
+      if (!ensureConfigured()) return { data: { user: null }, error: { message: "Not configured" } };
+      if (!supaLite._token && !(await this.getSession()).data.session) {
+        return { data: { user: null }, error: null };
+      }
 
       const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
         headers: supaLite._headers(),
       });
-      const user = await res.json();
-      return { user, session };
+      const data = await res.json();
+      if (!res.ok) return { data: { user: null }, error: data };
+      return { data: { user: data }, error: null };
+    },
+
+    async signInWithOAuth({ provider, options = {} }) {
+      if (!ensureConfigured()) return { error: { message: "Supabase environment is not configured." } };
+      const query = new URLSearchParams({
+        provider,
+        redirect_to: options.redirectTo || window.location.origin,
+      });
+      window.location.href = `${SUPABASE_URL}/auth/v1/authorize?${query.toString()}`;
+      return { data: null, error: null };
+    },
+
+    async handleOAuthCallback() {
+      const hash = window.location.hash;
+      if (!hash || !hash.includes("access_token")) return null;
+
+      const params = new URLSearchParams(hash.substring(1));
+      const session = {
+        access_token: params.get("access_token"),
+        refresh_token: params.get("refresh_token"),
+        expires_in: parseInt(params.get("expires_in") || "3600"),
+        token_type: params.get("token_type"),
+        user: null, // User info will be fetched by getSession/loadProfile
+      };
+
+      if (session.access_token) {
+        saveSession(session);
+        supaLite._token = session.access_token;
+        window.location.hash = "";
+        return session;
+      }
+      return null;
     },
   },
 

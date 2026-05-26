@@ -69,3 +69,4 @@ yarn-error.log*
 refresh_github.txt
 temp/
 tmp/
+supabase/supabase/.temp/

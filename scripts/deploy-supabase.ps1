@@ -28,10 +28,13 @@ try {
 }
 
 $root = Split-Path -Parent $PSScriptRoot
-$envFile = Join-Path $root "supabase\.env.example"
+$envFile = Join-Path $root "supabase\.env"
+if (-not (Test-Path $envFile)) {
+  $envFile = Join-Path $root "supabase\.env.example"
+}
 
 if (-not (Test-Path $envFile)) {
-  throw "Missing backend env file: $envFile"
+  throw "Missing backend env file"
 }
 
 Write-Host "Linking project $ProjectRef..." -ForegroundColor Cyan
@@ -46,7 +49,14 @@ Get-Content $envFile |
   ForEach-Object {
     $parts = $_ -split "=", 2
     if ($parts.Length -eq 2) {
-      Invoke-Supabase secrets set "$($_)" --workdir "$root\supabase"
+      $key = $parts[0].Trim()
+      $val = $parts[1].Trim()
+      # Skip reserved SUPABASE_ variables as they are automatically provided by the platform
+      if (-not $key.StartsWith("SUPABASE_")) {
+        Invoke-Supabase secrets set "$key=$val" --workdir "$root\supabase"
+      } else {
+        Write-Host "Skipping reserved secret: $key" -ForegroundColor Yellow
+      }
     }
   }
 
@@ -63,9 +73,9 @@ $functions = @(
 foreach ($fn in $functions) {
   Write-Host "Deploying function: $fn" -ForegroundColor Cyan
   if ($fn -eq "line-webhook" -or $fn -eq "health") {
-    Invoke-Supabase functions deploy $fn --project-ref $ProjectRef --no-verify-jwt --workdir "$root\supabase"
+    Invoke-Supabase functions deploy $fn --project-ref $ProjectRef --no-verify-jwt --workdir "$root"
   } else {
-    Invoke-Supabase functions deploy $fn --project-ref $ProjectRef --workdir "$root\supabase"
+    Invoke-Supabase functions deploy $fn --project-ref $ProjectRef --workdir "$root"
   }
 }
 

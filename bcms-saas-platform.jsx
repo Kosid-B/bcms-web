@@ -93,35 +93,6 @@ const supa = {
       return { error: res.ok ? null : await res.json() };
     },
 
-    // ── OAuth (Google / LINE) ──────────────────────────
-    async signInWithOAuth({ provider, options = {} }) {
-      const redirectTo = options.redirectTo
-        ?? `${window.location.origin}${window.location.pathname}?oauth_callback=1`;
-      const url = `${supa.url}/auth/v1/authorize?provider=${provider}&redirect_to=${encodeURIComponent(redirectTo)}`;
-      window.location.href = url;
-      return { data: null, error: null };
-    },
-
-    // ── Handle OAuth callback (call on page load) ──────
-    async handleOAuthCallback() {
-      const hash = window.location.hash;
-      if (!hash.includes("access_token")) return null;
-      const params = new URLSearchParams(hash.replace("#","?"));
-      const token = params.get("access_token");
-      const refresh = params.get("refresh_token");
-      if (!token) return null;
-      supa._token = token;
-      const session = { access_token: token, refresh_token: refresh };
-      saveSession(session);
-      // Clean URL
-      window.history.replaceState({}, "", window.location.pathname);
-      // Get user
-      const res = await fetch(`${supa.url}/auth/v1/user`, {
-        headers: supa._headers(),
-      });
-      const user = await res.json();
-      return { user, session };
-    },
   },
 
   // ── Data query builder ─────────────────────────────────────
@@ -851,91 +822,6 @@ function Btn({ children, variant = "gold", onClick, disabled, full, size = "md",
 }
 
 
-/*
- * OAuthButtons — Hick's Law: 2 social options (reduce password friction)
- * Fitts's Law: full-width buttons with 48px height
- * Jakob's Law: familiar Google/LINE button styles users already know
- */
-function OAuthButtons({ onSuccess, label = "เข้าสู่ระบบ" }) {
-  const [loading, setLoading] = useState(null);
-
-  const handleOAuth = async (provider) => {
-    setLoading(provider);
-    await supa.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: `${window.location.origin}${window.location.pathname}`,
-        queryParams: provider === "google"
-          ? { access_type: "offline", prompt: "consent" }
-          : {},
-      },
-    });
-    // Page redirects — loading state stays until redirect
-  };
-
-  const providers = [
-    {
-      id:      "google",
-      label:   `${label}ด้วย Google`,
-      icon:    (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-        </svg>
-      ),
-      bg:      "#FFFFFF",
-      border:  "#DADCE0",
-      color:   "#3C4043",
-      shadow:  "0 1px 3px rgba(60,64,67,0.15)",
-    },
-    {
-      id:      "line_login",   // Supabase uses "line" but route it as line_login
-      label:   `${label}ด้วย LINE`,
-      icon:    (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="#FFFFFF">
-          <path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.070 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/>
-        </svg>
-      ),
-      bg:      "#06C755",
-      border:  "#06C755",
-      color:   "#FFFFFF",
-      shadow:  "0 2px 8px rgba(6,199,85,0.30)",
-    },
-  ];
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {providers.map(p => (
-        <button key={p.id}
-          onClick={() => handleOAuth(p.id === "line_login" ? "line" : p.id)}
-          disabled={!!loading}
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-            width: "100%", minHeight: 48, padding: "0 20px",
-            background: loading === p.id ? p.bg + "CC" : p.bg,
-            border: `1.5px solid ${p.border}`,
-            borderRadius: 10, color: p.color,
-            fontSize: 14, fontWeight: 600, fontFamily: T.sans,
-            cursor: loading ? "wait" : "pointer",
-            boxShadow: p.shadow,
-            transition: "all 0.15s",
-            opacity: loading && loading !== p.id ? 0.6 : 1,
-          }}
-          onMouseEnter={e => { if (!loading) e.currentTarget.style.transform = "translateY(-1px)"; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = "none"; }}
-        >
-          {loading === p.id
-            ? <span style={{ width:16, height:16, border:`2px solid ${p.color}`, borderTopColor:"transparent", borderRadius:"50%", animation:"spin 0.6s linear infinite", display:"inline-block" }}/>
-            : p.icon
-          }
-          <span>{loading === p.id ? "กำลังเชื่อมต่อ..." : p.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // ─── AUTH MODAL ───────────────────────────────────────────────
 export function AuthModal({ mode: initMode = "login", onClose, onSuccess, selectedPkg }) {
@@ -1145,10 +1031,6 @@ export function AuthModal({ mode: initMode = "login", onClose, onSuccess, select
             </span>
           ) : mode === "login" ? "เข้าสู่ระบบ" : "สร้างบัญชีฟรี"}
         </Btn>
-
-        {/* Hick's Law: 2 OAuth options (reduce password friction) */}
-        <Divider label="หรือเข้าสู่ระบบด้วย" />
-        <OAuthButtons label={mode === "login" ? "เข้าสู่ระบบ" : "สมัครสมาชิก"} />
 
         {/* Serial Position — switch link at end (primacy already used by heading) */}
         <div style={{
@@ -2904,6 +2786,65 @@ export function RealtimeUpgradeModal({ newPlan, onDismiss }) {
  * Realtime push of system events (payment, invite accepted, etc.)
  * Doherty Threshold: Events appear instantly
  */
+// ── TrialBanner: แสดงจำนวนวันที่เหลือสำหรับการทดลองใช้งาน ──────────────────
+function TrialBanner({ user, onUpgrade }) {
+  if (!user?.isTrialValid || !user?.trialEndsAt) return null;
+
+  const diff = new Date(user.trialEndsAt) - new Date();
+  const daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+
+  if (daysLeft < 0) return null;
+
+  return (
+    <div style={{
+      background: "linear-gradient(90deg, #1565C0, #0284C7)",
+      color: "#FFFFFF",
+      padding: "8px 20px",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 12,
+      fontSize: 13,
+      fontWeight: 500,
+      fontFamily: T.sans,
+      boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
+      zIndex: 100,
+    }}>
+      <span>🎁 คุณกำลังอยู่ในช่วงทดลองใช้งานฟรี (Professional Features)</span>
+      <div style={{
+        background: "rgba(255,255,255,0.2)",
+        borderRadius: 20,
+        padding: "2px 10px",
+        fontSize: 11,
+        fontWeight: 700,
+        fontFamily: T.mono,
+        border: "1px solid rgba(255,255,255,0.3)",
+      }}>
+        เหลืออีก {daysLeft} วัน
+      </div>
+      <button
+        onClick={onUpgrade}
+        style={{
+          background: "#FFFFFF",
+          color: "#1565C0",
+          border: "none",
+          borderRadius: 6,
+          padding: "4px 12px",
+          fontSize: 11,
+          fontWeight: 700,
+          cursor: "pointer",
+          marginLeft: 8,
+          transition: "all 0.2s",
+        }}
+        onMouseEnter={e => e.currentTarget.style.transform = "scale(1.05)"}
+        onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+      >
+        อัปเกรดตอนนี้เพื่อสิทธิ์ที่ถาวร
+      </button>
+    </div>
+  );
+}
+
 // ── TenantBadge: แสดง subdomain context ใน header ──────────────────────
 function TenantBadge() {
   const tenant = useTenant();
@@ -8229,12 +8170,13 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
   const [dismissedNudge,setDismissedNudge]= useState(false);
 
   const pkgData   = PACKAGES.find(p => p.id === pkg) || PACKAGES[1];
-  const isFree    = pkg === "free";
+  const isFree    = user?.plan === "free";
+  const isTrial   = user?.isTrialValid;
   const [usageData, setUsageData] = useState({ users_used: 1, bia_used: 2 });
   const [milestones, setMilestones] = useState([]);
   const usersUsed = usageData.users_used ?? 1;
   const biaUsed   = usageData.bia_used   ?? 2;
-  const usagePct  = isFree ? Math.round((biaUsed / 3) * 100) : 12;
+  const usagePct  = (isFree && !isTrial) ? Math.round((biaUsed / 3) * 100) : 12;
 
   // Load real usage + all module counts + milestones
   useEffect(() => {
@@ -8303,9 +8245,10 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
      Settings + Billing last (recency effect)
      Jakob's Law — standard SaaS sidebar left pattern */
   // Buff (owner/b-tctraining.com) sees Admin Panel
-  const isBuffAdmin = user?.role === "owner"
-    || user?.email?.endsWith("@b-tctraining.com")
-    || user?.email?.toLowerCase().includes("buff");
+  const isBuffAdmin = [
+    'support@b-tctraining.com',
+    'admin@b-tctraining.com'
+  ].includes(user?.email);
 
   const sideNav = [
     /* ── BCMS Core ── primacy */
@@ -8463,6 +8406,7 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
 
       {/* Main Content */}
       <div style={{ marginLeft: 220, flex: 1 }}>
+        <TrialBanner user={user} onUpgrade={onUpgrade} />
         {/* Top bar */}
         <div style={{ background: T.bg2, borderBottom: `1px solid ${T.border}`, padding: "0 28px", height: 56, display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, zIndex: 60 }}>
           <span style={{ flex: 1, fontSize: 16, fontWeight: 700, color: T.white, fontFamily: T.serif }}>
@@ -9790,25 +9734,10 @@ export function AppCore({ tenant }) {
     return u;
   }, []);
 
-  // ── Restore session on mount + handle OAuth callback ─────
+  // ── Restore session on mount ─────
   useEffect(() => {
     (async () => {
-      // 1. Check for OAuth redirect (hash contains access_token)
-      if (window.location.hash.includes("access_token")) {
-        const result = await supa.auth.handleOAuthCallback();
-        if (result?.user) {
-          // Short delay for DB trigger to create profile
-          await new Promise(r => setTimeout(r, 1200));
-          const u = await loadProfile(result.user.id, result.user.email);
-          if (u) {
-            setUser(u); setActivePkg(u.plan !== "free" ? u.plan : "professional");
-            setView("dashboard"); setShowOnboarding(true);
-          }
-          return;
-        }
-      }
-
-      // 2. Restore existing session
+      // Restore existing session
       const { data: { session } } = await supa.auth.getSession();
       if (!session?.user) return;
       const u = await loadProfile(session.user.id, session.user.email);
