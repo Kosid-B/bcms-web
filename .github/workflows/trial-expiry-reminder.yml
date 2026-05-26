@@ -1,0 +1,19 @@
+name: Trial Expiry Reminder
+
+on:
+  schedule:
+    - cron: "0 1 * * *" # 08:00 เวลาไทย (UTC+7)
+  workflow_dispatch:
+
+jobs:
+  send-reminder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Supabase function trial-expiry-reminder
+        run: |
+          curl -sS -X POST \
+            "${{ secrets.SUPABASE_URL }}/functions/v1/trial-expiry-reminder" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.TRIAL_REMINDER_CRON_SECRET }}" \
+            -d "{}"

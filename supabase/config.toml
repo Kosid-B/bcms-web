@@ -48,3 +48,6 @@ verify_jwt = false
 
 [functions.plg-scorer]
 verify_jwt = false
+
+[functions.trial-expiry-reminder]
+verify_jwt = false
