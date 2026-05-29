@@ -449,9 +449,9 @@ function PlanGate({
   return (
     <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 20, background: "#f5f8ff" }}>
       <div style={{ width: "100%", maxWidth: 860, background: "#fff", border: "1px solid #dbe5f5", borderRadius: 16, padding: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 24 }}>เลือกแพ็กเกจก่อนเริ่มใช้งาน</h2>
+        <h2 style={{ margin: 0, fontSize: 24 }}>เริ่มใช้งานฟรี 14 วัน</h2>
         <p style={{ marginTop: 8, color: "#4b5b78" }}>
-          เริ่มใช้งานได้ทันทีด้วยแพ็กเกจฟรี 14 วัน หรือเลือกแพ็กเกจรายเดือน/รายปีเพื่อใช้งานต่อเนื่อง
+          สมัครแล้วใช้งานได้ทันทีโดยยังไม่ต้องชำระเงิน และเลือกอัปเกรดแพ็กเกจเมื่อพร้อม
         </p>
 
         <div style={{ marginTop: 12, marginBottom: 14, border: "1px solid #cde0ff", borderRadius: 12, background: "#eef5ff", padding: 14, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -462,9 +462,9 @@ function PlanGate({
           <button
             type="button"
             onClick={onStartFreeTrial}
-            style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #1565c0", background: "#1565c0", color: "#fff", fontWeight: 700, cursor: "pointer" }}
+            style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #16a34a", background: "#16a34a", color: "#fff", fontWeight: 800, cursor: "pointer" }}
           >
-            เริ่มใช้ฟรี 14 วัน
+            ใช้งานฟรี 14 วัน
           </button>
         </div>
 
