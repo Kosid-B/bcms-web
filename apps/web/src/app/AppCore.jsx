@@ -6,7 +6,7 @@ import Dashboard from "./features/dashboard/Dashboard.jsx";
 import ContinuityStrategyPage from "./features/organization/ContinuityStrategyPage.jsx";
 import OrganizationFeaturePage from "./features/organization/OrganizationFeaturePage.jsx";
 import PersonnelContinuityPage from "./features/personnel/PersonnelContinuityPage.jsx";
-import WelcomePage from "./features/marketing/WelcomePage.jsx";
+import { WelcomePage } from "./features/marketing/WelcomePage.jsx";
 import { RealtimeUpgradeModal, SuccessModal } from "./features/shared/SuccessModal.jsx";
 import { clearSession, supaLite } from "./lib/supa-lite.js";
 import { FontLink } from "./ui/GlobalStyles.jsx";
