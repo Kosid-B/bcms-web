@@ -22,6 +22,7 @@ export default function AppCore({ tenant }) {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [rtUpgrade, setRtUpgrade] = useState(null);
   const [mustChoosePlan, setMustChoosePlan] = useState(false);
+  const [mustSetupOrganization, setMustSetupOrganization] = useState(false);
 
   useEffect(() => {
     if (tenant?.type === "tenant") {
@@ -88,6 +89,30 @@ export default function AppCore({ tenant }) {
     };
   }, [canAccessApp]);
 
+  const evaluateOrganizationSetup = useCallback(async (orgId) => {
+    if (!orgId || orgId === "00000000-0000-0000-0000-000000000000") return false;
+
+    const [orgRes, deptRes] = await Promise.all([
+      supaLite
+        .from("organizations")
+        .select("name,billing_email")
+        .eq("id", orgId)
+        .maybeSingle(),
+      supaLite
+        .from("org_departments")
+        .select("id", { count: "exact", head: true })
+        .eq("org_id", orgId)
+        .eq("is_active", true),
+    ]);
+
+    if (orgRes?.error || deptRes?.error) return true;
+
+    const hasOrgName = !!String(orgRes?.data?.name ?? "").trim();
+    const hasBillingEmail = !!String(orgRes?.data?.billing_email ?? "").trim();
+    const activeDeptCount = deptRes?.count ?? 0;
+    return !(hasOrgName && hasBillingEmail && activeDeptCount > 0);
+  }, []);
+
   useEffect(() => {
     (async () => {
       // Restore existing session
@@ -116,10 +141,17 @@ export default function AppCore({ tenant }) {
         
         const blocked = !u.canAccess;
         setMustChoosePlan(blocked);
-        setView(blocked ? "plan_gate" : "dashboard");
+        if (!blocked) {
+          const setupRequired = await evaluateOrganizationSetup(u.orgId);
+          setMustSetupOrganization(setupRequired);
+          setView(setupRequired ? "organization_feature" : "dashboard");
+        } else {
+          setMustSetupOrganization(false);
+          setView("plan_gate");
+        }
       }
     })();
-  }, [loadProfile]);
+  }, [evaluateOrganizationSetup, loadProfile]);
 
   useEffect(() => {
     if (!user?.orgId) return;
@@ -200,14 +232,21 @@ export default function AppCore({ tenant }) {
     // New signup: go straight to dashboard in free-trial mode.
     if (authModal === "register") {
       setMustChoosePlan(false);
-      setView("dashboard");
+      setMustSetupOrganization(true);
+      setView("organization_feature");
       setShowOnboarding(true);
       return;
     }
 
     // Existing login: apply subscription gate as normal.
     setMustChoosePlan(blocked);
-    setView(blocked ? "plan_gate" : "dashboard");
+    if (blocked) {
+      setMustSetupOrganization(false);
+      setView("plan_gate");
+    } else {
+      setMustSetupOrganization(true);
+      setView("organization_feature");
+    }
   };
 
   const handlePaySuccess = (orderRef) => {
@@ -261,6 +300,7 @@ export default function AppCore({ tenant }) {
             <button
               type="button"
               onClick={() => setView("dashboard")}
+              disabled={mustSetupOrganization}
               style={{
                 border: "none",
                 borderRadius: 8,
@@ -268,7 +308,8 @@ export default function AppCore({ tenant }) {
                 background: view === "dashboard" ? "#1565c0" : "#eef4ff",
                 color: view === "dashboard" ? "#fff" : "#17335c",
                 fontWeight: 700,
-                cursor: "pointer",
+                cursor: mustSetupOrganization ? "not-allowed" : "pointer",
+                opacity: mustSetupOrganization ? 0.5 : 1,
               }}
             >
               Dashboard
@@ -276,6 +317,7 @@ export default function AppCore({ tenant }) {
             <button
               type="button"
               onClick={() => setView("personnel_continuity")}
+              disabled={mustSetupOrganization}
               style={{
                 border: "none",
                 borderRadius: 8,
@@ -283,7 +325,8 @@ export default function AppCore({ tenant }) {
                 background: view === "personnel_continuity" ? "#1565c0" : "#eef4ff",
                 color: view === "personnel_continuity" ? "#fff" : "#17335c",
                 fontWeight: 700,
-                cursor: "pointer",
+                cursor: mustSetupOrganization ? "not-allowed" : "pointer",
+                opacity: mustSetupOrganization ? 0.5 : 1,
               }}
             >
               Personnel
@@ -306,6 +349,7 @@ export default function AppCore({ tenant }) {
             <button
               type="button"
               onClick={() => setView("continuity_strategy")}
+              disabled={mustSetupOrganization}
               style={{
                 border: "none",
                 borderRadius: 8,
@@ -313,14 +357,15 @@ export default function AppCore({ tenant }) {
                 background: view === "continuity_strategy" ? "#1565c0" : "#eef4ff",
                 color: view === "continuity_strategy" ? "#fff" : "#17335c",
                 fontWeight: 700,
-                cursor: "pointer",
+                cursor: mustSetupOrganization ? "not-allowed" : "pointer",
+                opacity: mustSetupOrganization ? 0.5 : 1,
               }}
             >
               Strategy
             </button>
           </div>
 
-          {view === "dashboard" && (
+          {view === "dashboard" && !mustSetupOrganization && (
             <Dashboard
               user={user}
               pkg={activePkg}
@@ -339,7 +384,7 @@ export default function AppCore({ tenant }) {
         </>
       )}
 
-      {view === "personnel_continuity" && user && !mustChoosePlan && (
+      {view === "personnel_continuity" && user && !mustChoosePlan && !mustSetupOrganization && (
         <PersonnelContinuityPage
           user={user}
           onBack={() => setView("dashboard")}
@@ -349,11 +394,19 @@ export default function AppCore({ tenant }) {
       {view === "organization_feature" && user && !mustChoosePlan && (
         <OrganizationFeaturePage
           user={user}
-          onBack={() => setView("dashboard")}
+          forceRequired={mustSetupOrganization}
+          onSetupComplete={async () => {
+            const stillRequired = await evaluateOrganizationSetup(user.orgId);
+            setMustSetupOrganization(stillRequired);
+            if (!stillRequired) setView("dashboard");
+          }}
+          onBack={() => {
+            if (!mustSetupOrganization) setView("dashboard");
+          }}
         />
       )}
 
-      {view === "continuity_strategy" && user && !mustChoosePlan && (
+      {view === "continuity_strategy" && user && !mustChoosePlan && !mustSetupOrganization && (
         <ContinuityStrategyPage
           user={user}
           onBack={() => setView("dashboard")}

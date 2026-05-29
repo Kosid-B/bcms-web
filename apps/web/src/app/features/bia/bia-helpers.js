@@ -2,7 +2,9 @@ export const EMPTY_BIA_PROCESS_FORM = {
   name: "",
   department: "",
   owner: "",
+  scoring_mode: "auto",
   criticality: 3,
+  impacts: { financial: 0, regulatory: 0, reputation: 0, operational: 0 },
   rto_minutes: "",
   rpo_minutes: "",
   mtpd_minutes: "",
@@ -67,6 +69,7 @@ export function sanitizeBiaResources(resources = {}) {
 }
 
 export function buildBiaProcessPayload(form, orgId) {
+  const impacts = form.impacts || {};
   return {
     org_id: orgId,
     name: sanitizeBiaText(form.name),
@@ -78,7 +81,15 @@ export function buildBiaProcessPayload(form, orgId) {
     rto_minutes: toNullableNumber(form.rto_minutes),
     rpo_minutes: toNullableNumber(form.rpo_minutes),
     mtpd_minutes: toNullableNumber(form.mtpd_minutes),
-    metadata: {},
+    metadata: {
+      scoring_mode: form.scoring_mode === "manual" ? "manual" : "auto",
+      impacts: {
+        financial: Number(impacts.financial) || 0,
+        regulatory: Number(impacts.regulatory) || 0,
+        reputation: Number(impacts.reputation) || 0,
+        operational: Number(impacts.operational) || 0,
+      },
+    },
   };
 }
 

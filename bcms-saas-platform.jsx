@@ -5422,20 +5422,83 @@ function MonitorPage({ orgId, pkg, onUpgrade }) {
   const [showNewEvent, setShowNewEvent]     = useState(false);
   const [lastPulse, setLastPulse]           = useState(0);
   const [filterSev, setFilterSev]           = useState("all");
+  const alertedRef = useRef(new Set());
   const timerRef = useRef(null);
 
-  // ── Simulated real-time pulse every 20s ──────────────────────
+  // ── Real-time/polling monitor: threat + resource MAC trigger ─
   useEffect(() => {
-    timerRef.current = setInterval(() => {
-      setLastPulse(Date.now());
-      // Supabase Realtime subscription (when online)
-      supa.realtime("bcm_events", { table:"bcm_monitor_events", filter:`org_id=eq.${orgId}` }, payload => {
-        if (payload.eventType === "INSERT") {
-          setEvents(ev => [payload.new, ...ev].slice(0, 50));
-        }
-      });
-    }, 20000);
-    return () => clearInterval(timerRef.current);
+    if (!orgId) return;
+
+    let isMounted = true;
+
+    const syncMonitor = async () => {
+      try {
+        const [evRes, biaRes] = await Promise.all([
+          supa
+            .from("bcm_monitor_events")
+            .select("id,ts,category,source,title,detail,severity,linked_plan,status")
+            .eq("org_id", orgId)
+            .order("ts", { ascending: false })
+            .limit(50),
+          supa
+            .from("bia_processes")
+            .select("id,name,current_capacity_pct,mac_pct")
+            .eq("org_id", orgId),
+        ]);
+
+        if (!isMounted) return;
+
+        const dbEvents = evRes?.data ?? [];
+        const processRows = biaRes?.data ?? [];
+
+        const macEvents = processRows
+          .filter((p) => Number.isFinite(p?.current_capacity_pct) && Number.isFinite(p?.mac_pct) && p.current_capacity_pct < p.mac_pct)
+          .map((p) => {
+            const alertKey = `${p.id}:${p.current_capacity_pct}:${p.mac_pct}`;
+            if (!alertedRef.current.has(alertKey)) {
+              alertedRef.current.add(alertKey);
+              supa.functions("plg-event", {
+                event_name: "capacity_below_mac",
+                properties: {
+                  org_id: orgId,
+                  process_id: p.id,
+                  process_name: p.name,
+                  current_capacity_pct: p.current_capacity_pct,
+                  mac_pct: p.mac_pct,
+                },
+              }).catch(() => {});
+            }
+
+            return {
+              id: `mac_${p.id}`,
+              ts: new Date().toISOString(),
+              category: "Ops",
+              source: "Resource Monitor",
+              title: `MAC Trigger: ${p.name}`,
+              detail: `Capacity ${p.current_capacity_pct}% ต่ำกว่า MAC ${p.mac_pct}% — ควรเปิดใช้แผนความต่อเนื่องทันที`,
+              severity: p.current_capacity_pct <= (p.mac_pct - 20) ? "critical" : "high",
+              linked_plan: "",
+              status: "active",
+            };
+          });
+
+        const merged = [...macEvents, ...dbEvents]
+          .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+          .slice(0, 50);
+
+        setEvents(merged.length ? merged : MONITOR_SEED_EVENTS);
+        setLastPulse(Date.now());
+      } catch (_) {
+        // Keep UI alive with existing state if backend has intermittent errors.
+      }
+    };
+
+    syncMonitor();
+    timerRef.current = setInterval(syncMonitor, 20000);
+    return () => {
+      isMounted = false;
+      clearInterval(timerRef.current);
+    };
   }, [orgId]);
 
   const handleActivate = async (plan) => {

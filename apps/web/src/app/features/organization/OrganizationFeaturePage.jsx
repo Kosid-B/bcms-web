@@ -9,8 +9,9 @@ const card = {
   padding: 16,
 };
 
-export default function OrganizationFeaturePage({ user, onBack }) {
+export default function OrganizationFeaturePage({ user, onBack, forceRequired = false, onSetupComplete }) {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [org, setOrg] = useState(null);
   const [branding, setBranding] = useState(null);
@@ -18,6 +19,7 @@ export default function OrganizationFeaturePage({ user, onBack }) {
   const [departments, setDepartments] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [deptForm, setDeptForm] = useState({ dept_code: "", dept_name: "" });
+  const [checkingSetup, setCheckingSetup] = useState(false);
 
   const isOrgLevel = useMemo(
     () => (user?.accessLevel ?? "org") === "org" || ["owner", "admin"].includes((user?.role ?? "").toLowerCase()),
@@ -36,37 +38,55 @@ export default function OrganizationFeaturePage({ user, onBack }) {
   const load = async () => {
     if (!user?.orgId) return;
     setLoading(true);
-    const [o, b, p, u, r, d, a] = await Promise.all([
-      supaLite.from("organizations").select("id,name,timezone,billing_email,subdomain,custom_domain,plan,status").eq("id", user.orgId).maybeSingle(),
-      supaLite.from("org_branding").select("org_id,primary_color,company_name,tagline").eq("org_id", user.orgId).maybeSingle(),
-      supaLite.from("profiles").select("id", { count: "exact", head: true }).eq("org_id", user.orgId),
-      supaLite.from("org_units").select("id", { count: "exact", head: true }).eq("org_id", user.orgId),
-      supaLite.from("personnel_roles").select("id", { count: "exact", head: true }).eq("org_id", user.orgId),
-      supaLite.from("org_departments").select("id,dept_code,dept_name,is_active,created_at").eq("org_id", user.orgId).order("dept_code", { ascending: true }),
-      supaLite.from("org_audit_logs").select("id,action,target_type,target_id,details,created_at").eq("org_id", user.orgId).order("created_at", { ascending: false }).limit(20),
-    ]);
+    setLoadError("");
+    try {
+      const [o, b, p, u, r, d, a] = await Promise.all([
+        supaLite.from("organizations").select("id,name,timezone,billing_email,subdomain,custom_domain,plan,status").eq("id", user.orgId).maybeSingle(),
+        supaLite.from("org_branding").select("org_id,primary_color,company_name,tagline").eq("org_id", user.orgId).maybeSingle(),
+        supaLite.from("profiles").select("id", { count: "exact", head: true }).eq("org_id", user.orgId),
+        supaLite.from("org_units").select("id", { count: "exact", head: true }).eq("org_id", user.orgId),
+        supaLite.from("personnel_roles").select("id", { count: "exact", head: true }).eq("org_id", user.orgId),
+        supaLite.from("org_departments").select("id,dept_code,dept_name,is_active,created_at").eq("org_id", user.orgId).order("dept_code", { ascending: true }),
+        supaLite.from("org_audit_logs").select("id,action,target_type,target_id,details,created_at").eq("org_id", user.orgId).order("created_at", { ascending: false }).limit(20),
+      ]);
 
-    setOrg(o?.data ?? null);
-    setBranding(b?.data ?? null);
-    setStats({
-      profiles: p?.count ?? 0,
-      units: u?.count ?? 0,
-      roles: r?.count ?? 0,
-    });
-    setDepartments(d?.data ?? []);
-    setAuditLogs(a?.data ?? []);
+      const firstError =
+        o?.error || b?.error || p?.error || u?.error || r?.error || d?.error || a?.error;
+      if (firstError) {
+        throw firstError;
+      }
 
-    const orgData = o?.data ?? {};
-    const brandData = b?.data ?? {};
-    setForm({
-      name: orgData.name ?? "",
-      timezone: orgData.timezone ?? "Asia/Bangkok",
-      billing_email: orgData.billing_email ?? "",
-      primary_color: brandData.primary_color ?? "#1565C0",
-      company_name: brandData.company_name ?? "",
-      tagline: brandData.tagline ?? "",
-    });
-    setLoading(false);
+      setOrg(o?.data ?? null);
+      setBranding(b?.data ?? null);
+      setStats({
+        profiles: p?.count ?? 0,
+        units: u?.count ?? 0,
+        roles: r?.count ?? 0,
+      });
+      setDepartments(d?.data ?? []);
+      setAuditLogs(a?.data ?? []);
+
+      const orgData = o?.data ?? {};
+      const brandData = b?.data ?? {};
+      setForm({
+        name: orgData.name ?? "",
+        timezone: orgData.timezone ?? "Asia/Bangkok",
+        billing_email: orgData.billing_email ?? "",
+        primary_color: brandData.primary_color ?? "#1565C0",
+        company_name: brandData.company_name ?? "",
+        tagline: brandData.tagline ?? "",
+      });
+    } catch (error) {
+      const message = error?.message || "โหลดข้อมูลองค์กรไม่สำเร็จ";
+      setLoadError(message);
+      setOrg(null);
+      setBranding(null);
+      setDepartments([]);
+      setAuditLogs([]);
+      setStats({ profiles: 0, units: 0, roles: 0 });
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -160,6 +180,42 @@ export default function OrganizationFeaturePage({ user, onBack }) {
     await load();
   };
 
+  const verifySetupComplete = async () => {
+    if (!user?.orgId) return;
+    setCheckingSetup(true);
+    const [orgRes, deptRes] = await Promise.all([
+      supaLite
+        .from("organizations")
+        .select("name,billing_email")
+        .eq("id", user.orgId)
+        .maybeSingle(),
+      supaLite
+        .from("org_departments")
+        .select("id", { count: "exact", head: true })
+        .eq("org_id", user.orgId)
+        .eq("is_active", true),
+    ]);
+    setCheckingSetup(false);
+
+    if (orgRes?.error || deptRes?.error) {
+      alert(`ตรวจสอบไม่สำเร็จ: ${orgRes?.error?.message || deptRes?.error?.message}`);
+      return;
+    }
+
+    const hasOrgName = !!String(orgRes?.data?.name ?? "").trim();
+    const hasBillingEmail = !!String(orgRes?.data?.billing_email ?? "").trim();
+    const activeDeptCount = deptRes?.count ?? 0;
+
+    if (!(hasOrgName && hasBillingEmail && activeDeptCount > 0)) {
+      alert("กรุณากรอกชื่อองค์กร, Billing Email และสร้างแผนกที่ active อย่างน้อย 1 รายการก่อน");
+      return;
+    }
+
+    if (typeof onSetupComplete === "function") {
+      await onSetupComplete();
+    }
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: "#f5f8ff", padding: 20 }}>
       <div style={{ maxWidth: 1080, margin: "0 auto" }}>
@@ -175,6 +231,10 @@ export default function OrganizationFeaturePage({ user, onBack }) {
 
         {loading ? (
           <div style={card}>กำลังโหลด...</div>
+        ) : loadError ? (
+          <div style={{ ...card, borderColor: "#fecaca", background: "#fff7f7", color: "#991b1b" }}>
+            โหลดข้อมูลไม่สำเร็จ: {loadError}
+          </div>
         ) : (
           <>
             <div style={{ ...card, marginBottom: 12 }}>
@@ -241,6 +301,19 @@ export default function OrganizationFeaturePage({ user, onBack }) {
                 >
                   {saving ? "กำลังบันทึก..." : "บันทึก Organization"}
                 </button>
+                <button
+                  type="button"
+                  onClick={verifySetupComplete}
+                  disabled={saving || checkingSetup}
+                  style={{ marginTop: 8, marginLeft: 8, padding: "8px 12px", borderRadius: 8, border: "1px solid #1565c0", background: "#fff", color: "#1565c0", cursor: "pointer", fontWeight: 700 }}
+                >
+                  {checkingSetup ? "กำลังตรวจสอบ..." : "ยืนยันผังองค์กรและเริ่มใช้งาน"}
+                </button>
+                {forceRequired && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: "#9c5f00" }}>
+                    ต้องตั้งค่า Organization ให้ครบก่อนจึงจะเข้าโมดูลอื่นได้
+                  </div>
+                )}
               </div>
             </div>
 
