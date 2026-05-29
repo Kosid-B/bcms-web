@@ -30,7 +30,8 @@ export default function AppCore({ tenant }) {
   }, [tenant]);
 
   const canAccessApp = useCallback((sub, orgId) => {
-    if (!sub) return false;
+    // New signup race-condition: if subscription row is not ready yet, allow entry.
+    if (!sub || (typeof sub === "object" && Object.keys(sub).length === 0)) return true;
     if (orgId === "00000000-0000-0000-0000-000000000000") return false;
 
     const status = String(sub.status || "").toLowerCase();
@@ -59,13 +60,16 @@ export default function AppCore({ tenant }) {
 
     if (!profile) return null;
 
-    const sub = profile?.subscriptions?.[0] || {};
+    const sub = profile?.subscriptions?.[0] || null;
     const plan = sub.plan ?? "free";
     const status = sub.status ?? "trialing";
     const trialEndsAt = sub.trial_ends_at;
 
     const currentPeriodEnd = sub.current_period_end ?? null;
-    const canAccess = canAccessApp(sub, profile.org_id);
+    const canAccess = canAccessApp(
+      sub ?? { plan: "free", status: "trialing", trial_ends_at: null },
+      profile.org_id,
+    );
 
     return {
       id: userId,
@@ -185,23 +189,25 @@ export default function AppCore({ tenant }) {
   const handleAuthSuccess = (u) => {
     setUser(u);
     setAuthModal(null);
-    
+
     const fallbackAccess =
       u.subscriptionStatus === "active" ||
       (u.plan === "free" &&
         u.subscriptionStatus === "trialing" &&
         (!u.trialEndsAt || new Date(u.trialEndsAt) > new Date()));
     const blocked = !(u.canAccess ?? fallbackAccess);
+
+    // New signup: go straight to dashboard in free-trial mode.
+    if (authModal === "register") {
+      setMustChoosePlan(false);
+      setView("dashboard");
+      setShowOnboarding(true);
+      return;
+    }
+
+    // Existing login: apply subscription gate as normal.
     setMustChoosePlan(blocked);
     setView(blocked ? "plan_gate" : "dashboard");
-
-    if (authModal === "register") {
-      setShowOnboarding(true);
-    }
-
-    if (activePkg && activePkg !== "free" && authModal === "register") {
-      setTimeout(() => setPayModal({ pkg: activePkg, billing: payBilling }), 400);
-    }
   };
 
   const handlePaySuccess = (orderRef) => {
@@ -221,6 +227,14 @@ export default function AppCore({ tenant }) {
               return;
             }
             setAuthModal(mode);
+          }}
+          onStartFreeTrial={() => {
+            if (user) {
+              setMustChoosePlan(false);
+              setView("dashboard");
+              return;
+            }
+            setAuthModal("register");
           }}
           onSelectPkg={handleSelectPkg}
         />
@@ -348,11 +362,17 @@ export default function AppCore({ tenant }) {
 
       {view === "plan_gate" && user && (
         <PlanGate
+          user={user}
           selectedPkg={activePkg}
           billing={payBilling}
           onChangePkg={setActivePkg}
           onChangeBilling={setPayBilling}
           onContinue={() => setPayModal({ pkg: activePkg, billing: payBilling })}
+          onStartFreeTrial={() => {
+            setMustChoosePlan(false);
+            setView("dashboard");
+            setShowOnboarding(true);
+          }}
           onLogout={async () => {
             await supaLite.auth.signOut();
             clearSession();
@@ -406,11 +426,13 @@ export default function AppCore({ tenant }) {
 }
 
 function PlanGate({
+  user,
   selectedPkg,
   billing,
   onChangePkg,
   onChangeBilling,
   onContinue,
+  onStartFreeTrial,
   onLogout,
 }) {
   const packages = [
@@ -419,11 +441,32 @@ function PlanGate({
     { id: "enterprise", name: "Enterprise", monthly: 19900, annual: 15920 },
   ];
 
+  const nowTs = Date.now();
+  const trialEndTs = user?.trialEndsAt ? new Date(user.trialEndsAt).getTime() : null;
+  const trialDaysLeft = trialEndTs ? Math.max(0, Math.ceil((trialEndTs - nowTs) / (1000 * 60 * 60 * 24))) : 14;
+  const trialLabel = trialDaysLeft > 0 ? `เหลือทดลองใช้ฟรีอีก ${trialDaysLeft} วัน` : "ทดลองใช้ฟรีหมดอายุแล้ว";
+
   return (
     <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 20, background: "#f5f8ff" }}>
       <div style={{ width: "100%", maxWidth: 860, background: "#fff", border: "1px solid #dbe5f5", borderRadius: 16, padding: 24 }}>
         <h2 style={{ margin: 0, fontSize: 24 }}>เลือกแพ็กเกจก่อนเริ่มใช้งาน</h2>
-        <p style={{ marginTop: 8, color: "#4b5b78" }}>หลังสมัครสมาชิก ระบบต้องเลือกแพ็กเกจรายเดือนหรือรายปีเพื่อเปิดสิทธิ์การใช้งาน</p>
+        <p style={{ marginTop: 8, color: "#4b5b78" }}>
+          เริ่มใช้งานได้ทันทีด้วยแพ็กเกจฟรี 14 วัน หรือเลือกแพ็กเกจรายเดือน/รายปีเพื่อใช้งานต่อเนื่อง
+        </p>
+
+        <div style={{ marginTop: 12, marginBottom: 14, border: "1px solid #cde0ff", borderRadius: 12, background: "#eef5ff", padding: 14, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <div>
+            <div style={{ fontWeight: 800, color: "#10294d", fontSize: 16 }}>ทดลองใช้ฟรี 14 วัน</div>
+            <div style={{ color: "#35527a", marginTop: 4, fontSize: 13 }}>{trialLabel}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onStartFreeTrial}
+            style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #1565c0", background: "#1565c0", color: "#fff", fontWeight: 700, cursor: "pointer" }}
+          >
+            เริ่มใช้ฟรี 14 วัน
+          </button>
+        </div>
 
         <div style={{ display: "flex", gap: 10, marginTop: 14, marginBottom: 16 }}>
           <button
