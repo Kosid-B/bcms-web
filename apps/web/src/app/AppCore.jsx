@@ -6,7 +6,7 @@ import Dashboard from "./features/dashboard/Dashboard.jsx";
 import ContinuityStrategyPage from "./features/organization/ContinuityStrategyPage.jsx";
 import OrganizationFeaturePage from "./features/organization/OrganizationFeaturePage.jsx";
 import PersonnelContinuityPage from "./features/personnel/PersonnelContinuityPage.jsx";
-import { WelcomePage } from "./features/marketing/WelcomePage.jsx";
+import WelcomePage from "./features/marketing/WelcomePage.jsx";
 import { RealtimeUpgradeModal, SuccessModal } from "./features/shared/SuccessModal.jsx";
 import { clearSession, supaLite } from "./lib/supa-lite.js";
 import { FontLink } from "./ui/GlobalStyles.jsx";
@@ -449,7 +449,7 @@ function PlanGate({
   return (
     <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 20, background: "#f5f8ff" }}>
       <div style={{ width: "100%", maxWidth: 860, background: "#fff", border: "1px solid #dbe5f5", borderRadius: 16, padding: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 24 }}>เริ่มใช้งานฟรี 14 วัน</h2>
+        <h2 style={{ margin: 0, fontSize: 24 }}>เลือกแพ็กเกจหรือใช้ฟรี 14 วัน</h2>
         <p style={{ marginTop: 8, color: "#4b5b78" }}>
           สมัครแล้วใช้งานได้ทันทีโดยยังไม่ต้องชำระเงิน และเลือกอัปเกรดแพ็กเกจเมื่อพร้อม
         </p>
@@ -509,6 +509,13 @@ function PlanGate({
         <div style={{ marginTop: 18, display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
           <button type="button" onClick={onLogout} style={{ background: "transparent", border: "none", color: "#52617c", cursor: "pointer" }}>
             ออกจากระบบ
+          </button>
+          <button
+            type="button"
+            onClick={onStartFreeTrial}
+            style={{ padding: "10px 16px", borderRadius: 10, border: "1px solid #16a34a", background: "#16a34a", color: "#fff", fontWeight: 800, cursor: "pointer" }}
+          >
+            ใช้งานฟรี 14 วัน
           </button>
           <button
             type="button"
