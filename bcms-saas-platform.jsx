@@ -6,6 +6,10 @@ import BIAPageModule from "./apps/web/src/app/features/bia/BIAPage.jsx";
 import BIAWizardPageModule from "./apps/web/src/app/features/bia/BIAWizardPage.jsx";
 import DashboardModule from "./apps/web/src/app/features/dashboard/Dashboard.jsx";
 import WelcomePageModule from "./apps/web/src/app/features/marketing/WelcomePage.jsx";
+import PersonnelContinuityPageModule from "./apps/web/src/app/features/personnel/PersonnelContinuityPage.jsx";
+import ContinuityStrategyPageModule from "./apps/web/src/app/features/organization/ContinuityStrategyPage.jsx";
+import BCPBuilderPageModule from "./apps/web/src/app/features/bcp/BCPBuilderPage.jsx";
+import InstallationPlanningPageModule from "./apps/web/src/app/features/installation-planning/InstallationPlanningPage.jsx";
 import { SUPABASE_URL, SUPABASE_ANON } from "./apps/web/src/app/config/platform.js";
 import {
   RealtimeUpgradeModal as RealtimeUpgradeModalModule,
@@ -74,13 +78,44 @@ const supa = {
       try { localStorage.removeItem("sb_session"); } catch(_) {}
       return { error: null };
     },
+    async refreshSession() {
+      try {
+        const saved = localStorage.getItem("sb_session");
+        if (!saved) return { data: { session: null }, error: null };
+        const session = JSON.parse(saved);
+        if (!session.refresh_token) return { data: { session: null }, error: null };
+        const res = await fetch(`${supa.url}/auth/v1/token?grant_type=refresh_token`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: supa.key,
+            Authorization: `Bearer ${supa.key}`,
+          },
+          body: JSON.stringify({ refresh_token: session.refresh_token }),
+        });
+        if (!res.ok) {
+          // Do NOT clear session on failure — keep existing token as fallback
+          return { data: { session: null }, error: { message: "Token refresh failed" } };
+        }
+        const refreshed = await res.json();
+        const merged = { ...session, ...refreshed };
+        saveSession(merged);
+        supa._token = refreshed.access_token;
+        return { data: { session: merged }, error: null };
+      } catch (_) {
+        return { data: { session: null }, error: null };
+      }
+    },
+
     async getSession() {
       try {
         const saved = localStorage.getItem("sb_session");
         if (saved) {
           const session = JSON.parse(saved);
-          supa._token = session.access_token;
-          return { data: { session }, error: null };
+          if (session.access_token) {
+            supa._token = session.access_token;
+            return { data: { session }, error: null };
+          }
         }
       } catch(_) {}
       return { data: { session: null }, error: null };
@@ -215,23 +250,25 @@ class SupaQuery {
     this._table = table; this._getToken = getToken;
     this._filters = []; this._select = "*";
     this._order = null; this._limit = null;
-    this._single = false; this._method = "GET"; this._body = null;
-    this._prefer = "return=representation";
+    this._single = false; this._maybeSingle = false;
+    this._method = "GET"; this._body = null;
+    this._prefer = null; // set only for write operations
   }
   select(cols) { this._select = cols; return this; }
-  eq(col, val) { this._filters.push(`${col}=eq.${val}`); return this; }
-  neq(col, val){ this._filters.push(`${col}=neq.${val}`); return this; }
+  eq(col, val) { this._filters.push(`${col}=eq.${encodeURIComponent(val)}`); return this; }
+  neq(col, val){ this._filters.push(`${col}=neq.${encodeURIComponent(val)}`); return this; }
   in(col, vals){ this._filters.push(`${col}=in.(${vals.join(",")})`); return this; }
   not(col, op, val){ this._filters.push(`${col}=not.${op}.${val ?? ""}`); return this; }
   order(col, { ascending = true } = {}) {
-    this._order = `${col}=${ascending?"asc":"desc"}`; return this;
+    this._order = `${col}.${ascending?"asc":"desc"}`; return this;
   }
   limit(n) { this._limit = n; return this; }
   single() { this._single = true; return this; }
-  insert(data) { this._method = "POST"; this._body = data; return this; }
-  update(data) { this._method = "PATCH"; this._body = data; return this; }
+  maybeSingle() { this._maybeSingle = true; return this; }
+  insert(data) { this._method = "POST"; this._body = data; this._prefer = "return=representation"; return this; }
+  update(data) { this._method = "PATCH"; this._body = data; this._prefer = "return=representation"; return this; }
   upsert(data) { this._method = "POST"; this._body = data; this._prefer = "resolution=merge-duplicates,return=representation"; return this; }
-  delete() { this._method = "DELETE"; return this; }
+  delete() { this._method = "DELETE"; this._prefer = "return=representation"; return this; }
   onConflict(col) { this._prefer = `resolution=merge-duplicates,return=representation`; return this; }
   ignore() { this._prefer = "resolution=ignore-duplicates"; return this; }
 
@@ -241,22 +278,36 @@ class SupaQuery {
     if (this._order) url += `&order=${this._order}`;
     if (this._limit) url += `&limit=${this._limit}`;
 
-    const res = await fetch(url, {
-      method: this._method,
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": this._key,
-        "Authorization": `Bearer ${(this._getToken() ?? this._key)}`,
-        "Prefer": this._prefer,
-        ...(this._single ? { "Accept": "application/vnd.pgrst.object+json" } : {}),
-      },
-      body: this._body ? JSON.stringify(this._body) : undefined,
-    });
+    const headers = {
+      "Content-Type": "application/json",
+      "apikey": this._key,
+      "Authorization": `Bearer ${(this._getToken() ?? this._key)}`,
+      ...(this._prefer ? { "Prefer": this._prefer } : {}),
+      ...(this._single ? { "Accept": "application/vnd.pgrst.object+json" } : {}),
+    };
+    const fetchOpts = { method: this._method, headers, body: this._body ? JSON.stringify(this._body) : undefined };
+
+    let res = await fetch(url, fetchOpts);
+
+    // 401 auto-retry with token refresh
+    if (res.status === 401) {
+      const { data: refreshed } = await supa.auth.refreshSession();
+      if (refreshed?.session) {
+        headers.Authorization = `Bearer ${supa._token}`;
+        res = await fetch(url, fetchOpts);
+      }
+    }
 
     let data = null;
     try { data = res.status !== 204 ? await res.json() : null; } catch(_) {}
+
+    let result = res.ok ? data : null;
+    if (res.ok && this._maybeSingle) {
+      result = Array.isArray(data) ? (data[0] ?? null) : data;
+    }
+
     return {
-      data: res.ok ? data : null,
+      data: result,
       error: res.ok ? null : data,
       count: parseInt(res.headers.get("content-range")?.split("/")[1] ?? "0"),
     };
@@ -2439,6 +2490,159 @@ function UpgradeNudge({ type, pkg, usagePct, onUpgrade, onDismiss }) {
 }
 
 // ─── 7. PQL ADMIN DASHBOARD ──────────────────────────────────
+/* ══════════════════════════════════════════════
+ *  MaintenanceAdminPanel — inside PLGAdmin
+ * ══════════════════════════════════════════════ */
+function MaintenanceAdminPanel() {
+  const [cfg, setCfg] = useState({ active: false, severity: "info", title: "", message: "", eta: "" });
+  const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supa.from("platform_config").select("value").eq("key", "maintenance_banner").maybeSingle()
+      .then(({ data }) => { if (data?.value) setCfg({ active: false, severity: "info", title: "", message: "", eta: "", ...data.value }); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const save = async (patch) => {
+    const next = { ...cfg, ...patch };
+    setCfg(next);
+    setSaved(false);
+    await supa.from("platform_config").upsert({ key: "maintenance_banner", value: next, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  if (loading) return <div style={{ padding: 24, color: T.muted, fontFamily: T.sans }}>กำลังโหลด...</div>;
+
+  return (
+    <div style={{ background: T.bg3, borderRadius: 16, padding: 28, border: `1px solid ${T.border}` }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: T.white, fontFamily: T.sans, marginBottom: 20 }}>
+        🛠 System Maintenance Banner
+      </div>
+
+      {/* Toggle */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20, padding: "14px 18px",
+        background: cfg.active ? `${T.red}12` : T.bg4, borderRadius: 10,
+        border: `1px solid ${cfg.active ? T.red+"40" : T.border}` }}>
+        <button onClick={() => save({ active: !cfg.active })} style={{
+          width: 48, height: 26, borderRadius: 13, border: "none", cursor: "pointer",
+          background: cfg.active ? T.red : T.bg4,
+          position: "relative", transition: "background 0.2s",
+          outline: `1px solid ${cfg.active ? T.red : T.border}`,
+        }}>
+          <span style={{
+            position: "absolute", top: 3, left: cfg.active ? 24 : 3,
+            width: 20, height: 20, borderRadius: "50%", background: T.white,
+            transition: "left 0.2s", display: "block",
+          }}/>
+        </button>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: cfg.active ? T.red : T.white, fontFamily: T.sans }}>
+            {cfg.active ? "ACTIVE — Banner กำลังแสดงอยู่" : "ปิดอยู่ — กดเพื่อเปิด"}
+          </div>
+          <div style={{ fontSize: 10, color: T.muted, fontFamily: T.sans }}>
+            จะแสดงแถบสีให้ผู้ใช้ทุกคนทันที
+          </div>
+        </div>
+        {saved && <span style={{ marginLeft: "auto", fontSize: 11, color: T.green, fontFamily: T.mono }}>✓ บันทึกแล้ว</span>}
+      </div>
+
+      {/* Form */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        {[
+          { label: "หัวข้อ (Title)", key: "title", placeholder: "ระบบอยู่ระหว่างบำรุงรักษา" },
+          { label: "ETA / เวลาคาดว่าจะเสร็จ", key: "eta", placeholder: "เช่น 23:00 น." },
+        ].map(f => (
+          <div key={f.key}>
+            <div style={{ fontSize: 10, color: T.muted, fontFamily: T.mono, marginBottom: 4 }}>{f.label}</div>
+            <input
+              value={cfg[f.key] ?? ""}
+              onChange={e => setCfg(c => ({ ...c, [f.key]: e.target.value }))}
+              onBlur={() => save({})}
+              placeholder={f.placeholder}
+              style={{ width: "100%", background: T.bg4, border: `1px solid ${T.border}`, borderRadius: 8,
+                padding: "9px 12px", color: T.white, fontFamily: T.sans, fontSize: 12, boxSizing: "border-box" }}
+            />
+          </div>
+        ))}
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 10, color: T.muted, fontFamily: T.mono, marginBottom: 4 }}>รายละเอียด (Message)</div>
+        <input
+          value={cfg.message ?? ""}
+          onChange={e => setCfg(c => ({ ...c, message: e.target.value }))}
+          onBlur={() => save({})}
+          placeholder="ข้อความเพิ่มเติมสำหรับผู้ใช้..."
+          style={{ width: "100%", background: T.bg4, border: `1px solid ${T.border}`, borderRadius: 8,
+            padding: "9px 12px", color: T.white, fontFamily: T.sans, fontSize: 12, boxSizing: "border-box" }}
+        />
+      </div>
+      <div>
+        <div style={{ fontSize: 10, color: T.muted, fontFamily: T.mono, marginBottom: 6 }}>ระดับความรุนแรง</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {[
+            { id: "info",     label: "ℹ Info",     color: T.blue  },
+            { id: "warning",  label: "⚠ Warning",  color: T.amber },
+            { id: "critical", label: "🔴 Critical", color: T.red   },
+          ].map(s => (
+            <button key={s.id} onClick={() => save({ severity: s.id })} style={{
+              padding: "7px 14px", borderRadius: 8, border: `1px solid ${cfg.severity === s.id ? s.color : T.border}`,
+              background: cfg.severity === s.id ? `${s.color}18` : "transparent",
+              color: cfg.severity === s.id ? s.color : T.muted,
+              fontSize: 12, fontFamily: T.sans, cursor: "pointer", fontWeight: cfg.severity === s.id ? 700 : 400,
+            }}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
+ *  MaintenanceBanner — system-wide alert bar
+ *  Founder toggles from PLGAdminDashboard
+ * ══════════════════════════════════════════════ */
+function MaintenanceBanner({ config, onDismissLocal }) {
+  if (!config?.active) return null;
+  const sev = config.severity ?? "info";
+  const bgMap = { info: T.blue, warning: T.amber, critical: T.red };
+  const bg = bgMap[sev] ?? T.blue;
+  return (
+    <div style={{
+      background: `${bg}18`, borderBottom: `2px solid ${bg}60`,
+      padding: "10px 28px", display: "flex", alignItems: "center", gap: 12,
+      position: "sticky", top: 56, zIndex: 59,
+    }}>
+      <span style={{ fontSize: 14 }}>
+        {sev === "critical" ? "🔴" : sev === "warning" ? "🟡" : "🔵"}
+      </span>
+      <div style={{ flex: 1 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: T.white, fontFamily: T.sans }}>
+          {config.title ?? "ประกาศจากระบบ"}
+        </span>
+        {config.message && (
+          <span style={{ fontSize: 12, color: T.muted, fontFamily: T.sans, marginLeft: 8 }}>
+            — {config.message}
+          </span>
+        )}
+      </div>
+      {config.eta && (
+        <span style={{ fontSize: 10, color: bg, fontFamily: T.mono, background: `${bg}15`,
+          borderRadius: 4, padding: "2px 8px", border: `1px solid ${bg}30` }}>
+          ETA: {config.eta}
+        </span>
+      )}
+      <button onClick={onDismissLocal} style={{
+        background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 16, padding: 4,
+      }}>✕</button>
+    </div>
+  );
+}
+
 function PLGAdminDashboard({ onClose }) {
   const [activeSection, setActiveSection] = useState("funnel");
 
@@ -2502,10 +2706,11 @@ function PLGAdminDashboard({ onClose }) {
         <div style={{ display:"flex", gap:0, marginBottom:24, borderBottom:`1px solid ${T.border}`,
           alignItems:"center" }}>
           {[
-            { id:"funnel",   label:"Activation Funnel", icon:"📊" },
-            { id:"leads",    label:"PQL Hot Leads",     icon:"🔥" },
-            { id:"features", label:"Feature Adoption",  icon:"📈" },
-            { id:"metrics",  label:"PLG Metrics",       icon:"🎯" },
+            { id:"funnel",      label:"Activation Funnel", icon:"📊" },
+            { id:"leads",       label:"PQL Hot Leads",     icon:"🔥" },
+            { id:"features",    label:"Feature Adoption",  icon:"📈" },
+            { id:"metrics",     label:"PLG Metrics",       icon:"🎯" },
+            { id:"maintenance", label:"Maintenance",        icon:"🛠" },
           ].map(t => (
             <button key={t.id} onClick={() => setActiveSection(t.id)} style={{
               display:"flex", alignItems:"center", gap:6,
@@ -2631,6 +2836,10 @@ function PLGAdminDashboard({ onClose }) {
               </div>
             ))}
           </div>
+        )}
+
+        {activeSection === "maintenance" && (
+          <MaintenanceAdminPanel />
         )}
 
         {activeSection === "metrics" && (
@@ -5436,9 +5645,9 @@ function MonitorPage({ orgId, pkg, onUpgrade }) {
         const [evRes, biaRes] = await Promise.all([
           supa
             .from("bcm_monitor_events")
-            .select("id,ts,category,source,title,detail,severity,linked_plan,status")
+            .select("id,ts,created_at,category,source,title,detail,severity,linked_plan,status")
             .eq("org_id", orgId)
-            .order("ts", { ascending: false })
+            .order("created_at", { ascending: false })
             .limit(50),
           supa
             .from("bia_processes")
@@ -5482,7 +5691,8 @@ function MonitorPage({ orgId, pkg, onUpgrade }) {
             };
           });
 
-        const merged = [...macEvents, ...dbEvents]
+        const normalize = (e) => ({ ...e, ts: e.ts || e.created_at || new Date().toISOString() });
+        const merged = [...macEvents, ...dbEvents.map(normalize)]
           .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
           .slice(0, 50);
 
@@ -5544,17 +5754,19 @@ function MonitorPage({ orgId, pkg, onUpgrade }) {
     setActiveTab("monitor");
   };
 
-  const handleAddEvent = () => {
+  const handleAddEvent = async () => {
     if (!newEventForm.title) return;
-    const ev = {
-      id: "e_" + Date.now(),
-      ts: new Date().toISOString(),
+    const now = new Date().toISOString();
+    const payload = {
+      org_id: orgId,
+      ts: now,
       ...newEventForm,
       linked_plan: plans.find(p => p.title.toLowerCase().includes(newEventForm.category.toLowerCase()))?.title || "",
       status: "active",
     };
+    const { data: inserted } = await supa.from("bcm_monitor_events").insert(payload).select().single().catch(() => ({ data: null }));
+    const ev = { ...payload, id: inserted?.id || "e_" + Date.now() };
     setEvents(evs => [ev, ...evs]);
-    supa.from("bcm_monitor_events").insert({ org_id: orgId, ...ev }).catch(() => {});
     setShowNewEvent(false);
     setNewEventForm({ category:"IT", source:"", title:"", detail:"", severity:"medium" });
   };
@@ -6035,33 +6247,28 @@ function ClausePage({ orgId, pkg, onUpgrade }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Load clause status from org_settings or a dedicated table
-    setLoading(false);
-    // TODO: load from supabase clause_tracker table (migration 004)
+    if (!orgId) return;
+    supa.from("clause_tracker").select("clause_ref,status").eq("org_id", orgId)
+      .then(({ data }) => {
+        const m = {};
+        (data ?? []).forEach(r => { m[r.clause_ref] = r.status; });
+        setStatus(m);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [orgId]);
 
   const toggle = async (sub) => {
     const order = ["gap", "partial", "compliant", "na"];
-    const next  = order[(order.indexOf(status[sub]||"gap")+1)%4];
+    const next  = order[(order.indexOf(status[sub] || "gap") + 1) % 4];
     setStatus(s => ({ ...s, [sub]: next }));
-    // Persist to Supabase
-    supa.rpc("upsert_clause_status", {
-      p_org_id: orgId, p_clause: sub, p_status: next,
-    }).catch(() => {});
+    supa.from("clause_tracker")
+      .upsert(
+        { org_id: orgId, clause_ref: sub, status: next, last_updated: new Date().toISOString() },
+        { onConflict: "org_id,clause_ref" }
+      )
+      .catch(() => {});
   };
-
-  // Load persisted clause status on mount
-  useEffect(() => {
-    if (!orgId) return;
-    supa.from("clause_tracker").select("clause_ref,status").eq("org_id", orgId)
-      .then(({ data }) => {
-        if (data?.length) {
-          const m = {};
-          data.forEach(r => { m[r.clause_ref] = r.status; });
-          setStatus(m);
-        }
-      }).catch(() => {});
-  }, [orgId]);
 
   const statusCfg = {
     compliant: { color:T.green,  label:"✓ Compliant",  bg:T.green+"12" },
@@ -6395,6 +6602,7 @@ function ManagementReviewPage({ orgId, pkg, onUpgrade }) {
    ───────────────────────────────────────────────────────── */
 function ReportsPage({ orgId, pkg, onUpgrade }) {
   const [exporting, setExporting] = useState(null);
+  const [exportDone, setExportDone] = useState(null);
 
   const reports = [
     { id:"bia_summary",   icon:"◇", title:"BIA Summary Report",          desc:"สรุปกระบวนการวิกฤต RTO/RPO/MTPD ทั้งหมด",  format:"PDF/Excel", plan:"starter" },
@@ -6418,8 +6626,8 @@ function ReportsPage({ orgId, pkg, onUpgrade }) {
     }).catch(()=>{});
     await new Promise(r => setTimeout(r, 1200));
     setExporting(null);
-    alert(`กำลังสร้าง ${report.title}...
-(ระบบ PDF Generator จะเชื่อมต่อใน production)`);
+    setExportDone(report.id);
+    setTimeout(() => setExportDone(null), 3500);
   };
 
   return (
@@ -6429,6 +6637,11 @@ function ReportsPage({ orgId, pkg, onUpgrade }) {
           <div style={{ fontSize:20,fontFamily:T.serif,fontWeight:800,color:T.white }}>📊 Reports & Export</div>
           <div style={{ fontSize:12,color:T.muted,fontFamily:T.sans,marginTop:2 }}>ส่งออกรายงาน ISO 22301 · PDF · Excel</div>
         </div>
+        {exportDone && (
+          <div style={{ marginBottom:16, padding:"12px 18px", background:T.green+"15", border:`1px solid ${T.green}40`, borderRadius:10, fontSize:12, color:T.green, fontFamily:T.sans }}>
+            ✅ กำลังสร้างรายงาน — ไฟล์จะดาวน์โหลดอัตโนมัติเมื่อระบบ PDF Generator เชื่อมต่อใน production
+          </div>
+        )}
         <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:12 }}>
           {reports.map(r => {
             const locked = pkgOrder.indexOf(r.plan) > userIdx;
@@ -6462,7 +6675,7 @@ function ReportsPage({ orgId, pkg, onUpgrade }) {
                       color:locked?T.muted:T.gold,
                       fontSize:11,fontWeight:600,fontFamily:T.sans,cursor:"pointer",
                       flexShrink:0,whiteSpace:"nowrap" }}>
-                    {exporting===r.id ? "⏳" : locked ? "🔒" : "Export"}
+                    {exporting===r.id ? "⏳" : exportDone===r.id ? "✅" : locked ? "🔒" : "Export"}
                   </button>
                 </div>
               </div>
@@ -6561,6 +6774,7 @@ function RegulatoryCompliancePage({ orgId, pkg, onUpgrade }) {
   const [addedRisks, setAddedRisks]   = useState([]);
   const [bridgeFormat, setBridgeFormat] = useState("bot");
   const [exporting, setExporting]     = useState(false);
+  const [exportDoneReg, setExportDoneReg] = useState(false);
 
   const reg   = REGULATOR_CHECKLISTS[activeReg];
   const items = reg.items;
@@ -6589,7 +6803,8 @@ function RegulatoryCompliancePage({ orgId, pkg, onUpgrade }) {
     await supa.functions("plg-event", { event_name:"regulator_bridge_export", properties:{ format: bridgeFormat } }).catch(()=>{});
     await new Promise(r => setTimeout(r, 1400));
     setExporting(false);
-    alert(`กำลังสร้างรายงาน "${REGULATOR_CHECKLISTS[bridgeFormat].label}" ...\n(PDF Generator จะเชื่อมต่อใน production)`);
+    setExportDoneReg(true);
+    setTimeout(() => setExportDoneReg(false), 3500);
   };
 
   return (
@@ -6839,8 +7054,13 @@ function RegulatoryCompliancePage({ orgId, pkg, onUpgrade }) {
                 </div>
               ))}
             </div>
+            {exportDoneReg && (
+              <div style={{ marginBottom:12, padding:"10px 16px", background:T.green+"15", border:`1px solid ${T.green}40`, borderRadius:8, fontSize:12, color:T.green, fontFamily:T.sans }}>
+                ✅ กำลังสร้างรายงาน — ไฟล์จะดาวน์โหลดอัตโนมัติเมื่อระบบ PDF Generator พร้อมใช้งาน
+              </div>
+            )}
             <Btn full onClick={handleExportBridge} disabled={exporting}>
-              {exporting ? "⏳ กำลังสร้าง..." : `📄 Export รายงาน ${bridgeFormat.toUpperCase()} ฟอร์แมต`}
+              {exporting ? "⏳ กำลังสร้าง..." : exportDoneReg ? "✅ สำเร็จ!" : `📄 Export รายงาน ${bridgeFormat.toUpperCase()} ฟอร์แมต`}
             </Btn>
           </div>
         )}
@@ -7152,14 +7372,25 @@ function getMTPDColor(hours, impactScore) {
 
 // BIAWizardPage moved to apps/web/src/app/features/bia/BIAWizardPage.jsx
 function CallTreePage({ orgId, pkg, onUpgrade }) {
-  const [contacts, setContacts]     = useState(CALL_TREE_SEED);
+  const [contacts, setContacts]     = useState([]);
   const [alerting, setAlerting]     = useState(false);
   const [alertSent, setAlertSent]   = useState(false);
   const [showAdd, setShowAdd]       = useState(false);
-  const [newContact, setNewContact] = useState({ name:"", phone:"", email:"", line:"", role:"", tier:2 });
+  const [newContact, setNewContact] = useState({ name:"", phone:"", email:"", line_id:"", role:"", tier:2 });
   const [incidentMsg, setIncidentMsg] = useState("");
   const [selectedCon, setSelectedCon] = useState([]);
   const [filterTier, setFilterTier]   = useState("all");
+
+  useEffect(() => {
+    if (!orgId) return;
+    supa.from("call_tree_contacts")
+      .select("id,name,role,phone,email,line_id,tier,is_active")
+      .eq("org_id", orgId)
+      .eq("is_active", true)
+      .order("tier")
+      .then(({ data }) => setContacts((data ?? []).map(c => ({ ...c, notified:false }))))
+      .catch(() => {});
+  }, [orgId]);
 
   const handleSelectAll = () => {
     if (selectedCon.length === contacts.length) setSelectedCon([]);
@@ -7181,12 +7412,13 @@ function CallTreePage({ orgId, pkg, onUpgrade }) {
     setTimeout(() => setAlertSent(false), 3000);
   };
 
-  const handleAddContact = () => {
+  const handleAddContact = async () => {
     if (!newContact.name || !newContact.phone) return;
-    setContacts(cs => [...cs, { ...newContact, id:"ct_"+Date.now(), notified:false }]);
-    supa.from("profiles").upsert({ org_id: orgId, display_name: newContact.name, phone: newContact.phone, bcm_role: newContact.role }, { onConflict:"org_id,display_name" }).catch(()=>{});
+    const payload = { org_id: orgId, name: newContact.name, role: newContact.role || "", phone: newContact.phone, email: newContact.email || "", line_id: newContact.line_id || "", tier: newContact.tier };
+    const { data: inserted } = await supa.from("call_tree_contacts").insert(payload).select().single().catch(() => ({ data: null }));
+    setContacts(cs => [...cs, { ...payload, id: inserted?.id || "ct_"+Date.now(), notified:false }]);
     setShowAdd(false);
-    setNewContact({ name:"", phone:"", email:"", line:"", role:"", tier:2 });
+    setNewContact({ name:"", phone:"", email:"", line_id:"", role:"", tier:2 });
   };
 
   const tierLabel = { 1:"Tier 1 · แจ้งทันที", 2:"Tier 2 · แจ้งภายใน 30 นาที", 3:"Tier 3 · แจ้งภายใน 2 ชั่วโมง" };
@@ -7285,7 +7517,7 @@ function CallTreePage({ orgId, pkg, onUpgrade }) {
                         {[
                           { icon:"📱", label:"โทร", action:()=>window.open(`tel:${con.phone}`) },
                           { icon:"✉️", label:"Email", action:()=>window.open(`mailto:${con.email}`) },
-                          { icon:"💬", label:"LINE", action:()=>window.open(`https://line.me/R/ti/p/${con.line}`) },
+                          { icon:"💬", label:"LINE", action:()=>window.open(`https://line.me/R/ti/p/${con.line_id}`) },
                         ].map(ch => (
                           <button key={ch.label} onClick={e=>{e.stopPropagation();ch.action();}}
                             style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${T.border}`,
@@ -7311,7 +7543,7 @@ function CallTreePage({ orgId, pkg, onUpgrade }) {
             { l:"ชื่อ-นามสกุล *", k:"name",  ph:"e.g. สมชาย ใจดี" },
             { l:"โทรศัพท์ *",      k:"phone", ph:"08X-XXX-XXXX" },
             { l:"Email",           k:"email", ph:"name@company.com" },
-            { l:"LINE ID",         k:"line",  ph:"@line_id" },
+            { l:"LINE ID",         k:"line_id",  ph:"@line_id" },
             { l:"ตำแหน่ง/บทบาท",  k:"role",  ph:"e.g. IT Manager, BCM Lead" },
           ].map(f => (
             <div key={f.k} style={{ marginBottom:12 }}>
@@ -7346,36 +7578,50 @@ function CallTreePage({ orgId, pkg, onUpgrade }) {
 
 function DrillEvidencePage({ orgId, pkg, onUpgrade }) {
   const [activeTab, setActiveTab] = useState("drills"); // drills | capa
-  const [drills, setDrills]       = useState([
-    { id:"d1", title:"Tabletop Exercise — IT DR Plan", date:"2568-01-15", type:"tabletop",  status:"completed", participants:"12 คน", findings:"ต้องอัปเดต Contact List", evidence:["photo_1.jpg"] },
-    { id:"d2", title:"Full-scale BCM Drill 2567",      date:"2567-08-20", type:"fullscale", status:"completed", participants:"45 คน", findings:"Generator ใช้งานได้ 100%", evidence:["video_1.mp4","photo_5.jpg"] },
-  ]);
-  const [capas, setCAPAs]   = useState([
-    { id:"c1", finding:"Contact List ล้าสมัย 3 รายการ", action:"อัปเดต Digital Call Tree ทุกไตรมาส", owner:"HR Manager", due:"2568-04-30", status:"in_progress" },
-    { id:"c2", finding:"ขั้นตอน Recovery IT ใช้เวลาเกิน RTO", action:"เพิ่ม Automation Script สำหรับ Server Restart", owner:"IT Manager", due:"2568-03-31", status:"done" },
-  ]);
+  const [drills, setDrills]       = useState([]);
+  const [capas, setCAPAs]         = useState([]);
+  const [loading, setLoading]     = useState(true);
   const [showDrillForm, setShowDrillForm] = useState(false);
   const [showCAPAForm,  setShowCAPAForm]  = useState(false);
   const [drillForm, setDrillForm] = useState({ title:"", date:"", type:"tabletop", participants:"", objectives:"", findings:"", lessons:"" });
   const [capaForm,  setCAPAForm]  = useState({ finding:"", action:"", owner:"", due:"", status:"open" });
 
-  const handleAddDrill = () => {
+  useEffect(() => {
+    if (!orgId) return;
+    Promise.all([
+      supa.from("exercises").select("*").eq("org_id", orgId).order("created_at", { ascending:false }),
+      supa.from("capa_items").select("*").eq("org_id", orgId).order("created_at", { ascending:false }),
+    ]).then(([{ data: ex }, { data: ca }]) => {
+      setDrills((ex ?? []).map(r => ({ ...r, evidence: r.evidence ?? [] })));
+      setCAPAs(ca ?? []);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [orgId]);
+
+  const handleAddDrill = async () => {
     if (!drillForm.title) return;
-    const d = { ...drillForm, id:"d_"+Date.now(), status:"completed", evidence:[] };
+    const payload = { org_id: orgId, ...drillForm, status:"completed" };
+    const { data: inserted } = await supa.from("exercises").insert(payload).select().single().catch(() => ({ data: null }));
+    const d = { ...payload, id: inserted?.id || "d_"+Date.now(), evidence:[] };
     setDrills(ds => [d, ...ds]);
-    supa.from("exercises").insert({ org_id: orgId, ...drillForm, status:"completed" }).catch(()=>{});
     supa.functions("plg-event",{event_name:"drill_logged"}).catch(()=>{});
     setShowDrillForm(false);
     setDrillForm({ title:"",date:"",type:"tabletop",participants:"",objectives:"",findings:"",lessons:"" });
   };
 
-  const handleAddCAPA = () => {
+  const handleAddCAPA = async () => {
     if (!capaForm.finding) return;
-    const c = { ...capaForm, id:"c_"+Date.now() };
+    const payload = { org_id: orgId, ...capaForm };
+    const { data: inserted } = await supa.from("capa_items").insert(payload).select().single().catch(() => ({ data: null }));
+    const c = { ...payload, id: inserted?.id || "c_"+Date.now() };
     setCAPAs(cs => [c, ...cs]);
     supa.functions("plg-event",{event_name:"capa_created"}).catch(()=>{});
     setShowCAPAForm(false);
     setCAPAForm({ finding:"",action:"",owner:"",due:"",status:"open" });
+  };
+
+  const handleCloseCAPA = async (capaId) => {
+    setCAPAs(cs => cs.map(c => c.id===capaId ? {...c, status:"done"} : c));
+    await supa.from("capa_items").update({ status:"done" }).eq("id", capaId).catch(()=>{});
   };
 
   const statusColor = { completed:T.green, in_progress:T.amber, open:T.red, done:T.green, planned:T.teal };
@@ -7493,7 +7739,7 @@ function DrillEvidencePage({ orgId, pkg, onUpgrade }) {
                           {c.status.replace("_"," ").toUpperCase()}
                         </span>
                         {c.status !== "done" && (
-                          <button onClick={() => setCAPAs(cs => cs.map(ci => ci.id===c.id ? {...ci,status:"done"} : ci))}
+                          <button onClick={() => handleCloseCAPA(c.id)}
                             style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${T.green}50`,
                               background:T.green+"12", color:T.green, fontSize:9, fontFamily:T.mono, cursor:"pointer" }}>
                             ✓ ปิด CAPA
@@ -8237,6 +8483,14 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
   const isTrial   = user?.isTrialValid;
   const [usageData, setUsageData] = useState({ users_used: 1, bia_used: 2 });
   const [milestones, setMilestones] = useState([]);
+  const [maintenanceCfg, setMaintenanceCfg] = useState(null);
+  const [maintenanceDismissed, setMaintenanceDismissed] = useState(false);
+
+  useEffect(() => {
+    supa.from("platform_config").select("value").eq("key", "maintenance_banner").maybeSingle()
+      .then(({ data }) => { if (data?.value?.active) setMaintenanceCfg(data.value); })
+      .catch(() => {});
+  }, []);
   const usersUsed = usageData.users_used ?? 1;
   const biaUsed   = usageData.bia_used   ?? 2;
   const usagePct  = (isFree && !isTrial) ? Math.round((biaUsed / 3) * 100) : 12;
@@ -8327,12 +8581,16 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
     { id: "exercise",   icon: "○",  label: "Exercise Programme",    group: "advanced", gate: "exercise" },
     { id: "mgreview",   icon: "□",  label: "Management Review",     group: "advanced", gate: "mgreview" },
     { id: "reports",    icon: "📊", label: "Reports & Export",      group: "advanced", gate: "export" },
+    { id: "installation", icon: "⌖", label: "แผนการติดตั้ง",        group: "advanced" },
+    { id: "personnel",  icon: "👥", label: "Personnel (ISO 22330)",  group: "advanced" },
+    { id: "strategy",   icon: "🗺", label: "Continuity Strategy",    group: "advanced", gate: "bcplan" },
     /* ── SME Regulator Suite ── */
     { id: "biawizard",  icon: "🧙", label: "BIA Wizard",            group: "sme", gate: "bcplan" },
     { id: "regulator",  icon: "🏛",  label: "Regulatory Compliance", group: "sme", gate: "bcplan" },
     { id: "calltree",   icon: "📞", label: "Digital Call Tree",     group: "sme", gate: "bcplan" },
     { id: "evidence",   icon: "📋", label: "Drill Evidence & CAPA", group: "sme", gate: "exercise" },
     { id: "bcpgen",     icon: "📄", label: "BCP Document Generator",group: "sme", gate: "bcplan" },
+    { id: "bcpbuilder", icon: "🛡", label: "BCP Builder (4-Phase)", group: "sme", gate: "bcplan" },
     /* ── Team ── */
     { id: "members",   icon: "◉", label: "จัดการสมาชิก",        group: "team" },
     { id: "plgadmin",  icon: "📈", label: "PLG Dashboard",      group: "team",   adminOnly: true },
@@ -8470,6 +8728,9 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
       {/* Main Content */}
       <div style={{ marginLeft: 220, flex: 1 }}>
         <TrialBanner user={user} onUpgrade={onUpgrade} />
+        {!maintenanceDismissed && (
+          <MaintenanceBanner config={maintenanceCfg} onDismissLocal={() => setMaintenanceDismissed(true)} />
+        )}
         {/* Top bar */}
         <div style={{ background: T.bg2, borderBottom: `1px solid ${T.border}`, padding: "0 28px", height: 56, display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, zIndex: 60 }}>
           <span style={{ flex: 1, fontSize: 16, fontWeight: 700, color: T.white, fontFamily: T.serif }}>
@@ -8514,6 +8775,51 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
               {!isFree && usagePct >= 80 && (
                 <UpgradeNudge type="limit" pkg={pkg} usagePct={usagePct} onUpgrade={onUpgrade}/>
               )}
+
+              {/* ── Zeigarnik Effect: Setup Progress Bar ──
+                   แสดงเฉพาะเมื่อยังไม่ครบ 100% เพื่อกระตุ้น completion urge */}
+              {(() => {
+                const completedKeys = new Set(milestones.map(m => m.milestone_key));
+                const done = PLG_MILESTONES.filter(m => completedKeys.has(m.trigger)).length;
+                const total = PLG_MILESTONES.length;
+                if (done >= total) return null;
+                const pct = Math.round((done / total) * 100);
+                return (
+                  <div style={{ marginBottom: 18, background: T.bg2, borderRadius: 14,
+                    padding: "14px 20px", border: `1px solid ${T.border}`,
+                    display: "flex", alignItems: "center", gap: 16 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: T.white, fontFamily: T.sans }}>
+                          ⚡ ตั้งค่าระบบ BCMS ให้ครบ — {done}/{total} ขั้นตอน
+                        </div>
+                        <div style={{ fontSize: 11, color: T.gold, fontFamily: T.mono, fontWeight: 700 }}>{pct}%</div>
+                      </div>
+                      <div style={{ height: 6, background: T.bg4, borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${pct}%`,
+                          background: `linear-gradient(90deg, ${T.gold}, ${T.teal})`,
+                          borderRadius: 3, transition: "width 1s ease" }}/>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                        {PLG_MILESTONES.map(m => {
+                          const isDone = completedKeys.has(m.trigger);
+                          return (
+                            <span key={m.id} style={{
+                              fontSize: 10, fontFamily: T.sans, padding: "2px 8px", borderRadius: 10,
+                              background: isDone ? `${T.green}15` : T.bg4,
+                              color: isDone ? T.green : T.muted,
+                              border: `1px solid ${isDone ? T.green+"40" : T.border}`,
+                              textDecoration: isDone ? "none" : "none",
+                            }}>
+                              {isDone ? "✓" : "○"} {m.title}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ── Executive Header ── Glanceability: name + date top-left */}
               <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between",
@@ -8665,6 +8971,33 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
                         </div>
                       ))}
                     </div>
+
+                    {/* ── Goal-Gradient Effect: Compliance Milestone Nudge ──
+                         ยิ่งใกล้ถึงเป้า ยิ่งกระตุ้น action */}
+                    {readiness >= 50 && readiness < 95 && (() => {
+                      const toGo = 100 - readiness;
+                      const nextThreshold = readiness < 60 ? 60 : readiness < 80 ? 80 : 95;
+                      const toNext = nextThreshold - readiness;
+                      const label = nextThreshold === 60 ? "ระดับ Developing" : nextThreshold === 80 ? "ระดับ Audit-Ready" : "ระดับ Certified";
+                      return (
+                        <div style={{ marginBottom: 18, padding: "12px 20px", borderRadius: 12,
+                          background: `linear-gradient(135deg, ${T.gold}08, ${T.teal}08)`,
+                          border: `1px solid ${T.gold}30`, display: "flex", alignItems: "center", gap: 14 }}>
+                          <span style={{ fontSize: 22 }}>🎯</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: T.white, fontFamily: T.sans }}>
+                              อีก {toNext} คะแนน → ถึง{label}
+                            </div>
+                            <div style={{ fontSize: 10, color: T.muted, fontFamily: T.sans, marginTop: 2 }}>
+                              ปิด Critical Gap ด้านล่างเพื่อเพิ่มคะแนน Readiness ขึ้น {toNext} จุด
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 28, fontWeight: 800, color: T.gold, fontFamily: T.mono }}>
+                            {readiness}<span style={{ fontSize: 12 }}>/100</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* ══════════════════════════════════════════════════════
                          TIER 2 — CRITICAL GAPS (C-Level Decision Engine)
@@ -8913,6 +9246,9 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
           {activePage === "reports" && (
             <ReportsPage orgId={user.orgId} pkg={pkg} onUpgrade={onUpgrade} />
           )}
+          {activePage === "installation" && (
+            <InstallationPlanningPageModule user={user} />
+          )}
           {/* ── SME Regulator Suite ── */}
           {activePage === "biawizard" && (
             <BIAWizardPageModule
@@ -8934,6 +9270,21 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
           {activePage === "bcpgen" && (
             <BCPGeneratorPage orgId={user.orgId} pkg={pkg} onUpgrade={onUpgrade} />
           )}
+          {activePage === "personnel" && (
+            <PersonnelContinuityPageModule user={user} onBack={() => setActivePage("overview")} />
+          )}
+          {activePage === "strategy" && (
+            <ContinuityStrategyPageModule user={user} onBack={() => setActivePage("overview")} />
+          )}
+          {activePage === "bcpbuilder" && (
+            <BCPBuilderPageModule user={user} onBack={() => setActivePage("overview")} />
+          )}
+          {activePage === "members" && (
+            <MembersPage orgId={user.orgId} pkg={pkg} onUpgrade={onUpgrade} onInvite={() => setShowInvite(true)} />
+          )}
+          {activePage === "billing" && (
+            <BillingPage user={user} pkg={pkg} onUpgrade={onUpgrade} />
+          )}
           {activePage === "branding" && (
             <BrandingPage orgId={user.orgId} pkg={pkg} onUpgrade={onUpgrade} user={user} />
           )}
@@ -8950,6 +9301,193 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
   );
 }
 
+
+/* ─────────────────────────────────────────────────────────
+   MEMBERS PAGE — จัดการสมาชิกในองค์กร (ISO 22301 §7.2)
+   ───────────────────────────────────────────────────────── */
+function MembersPage({ orgId, pkg, onUpgrade, onInvite }) {
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const pkgData = PACKAGES.find(p => p.id === pkg) || PACKAGES[1];
+  const maxUsers = parseInt(pkgData.limits.users, 10) || 1;
+
+  useEffect(() => {
+    if (!orgId) return;
+    supa.from("profiles")
+      .select("id,full_name,role,access_level,department,created_at")
+      .eq("org_id", orgId)
+      .order("created_at")
+      .then(({ data }) => { setMembers(data ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [orgId]);
+
+  const roleColor = { owner: T.gold, admin: T.teal, member: T.muted2 };
+  const atLimit = members.length >= maxUsers;
+
+  return (
+    <div style={{ animation: "fadeUp 0.4s ease" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 20, fontFamily: T.serif, fontWeight: 800, color: T.white }}>◉ จัดการสมาชิก</div>
+          <div style={{ fontSize: 12, color: T.muted, fontFamily: T.sans, marginTop: 2 }}>
+            {members.length}/{maxUsers} คน · ISO 22301 §7.2 Competence & Awareness
+          </div>
+        </div>
+        <Btn size="sm" onClick={onInvite} disabled={atLimit}>+ เชิญสมาชิก</Btn>
+      </div>
+
+      <ModCard style={{ marginBottom: 14 }}>
+        {loading
+          ? <div style={{ padding: 32, textAlign: "center" }}><span style={{ width: 20, height: 20, border: `2px solid ${T.border}`, borderTopColor: T.gold, borderRadius: "50%", animation: "spin 0.7s linear infinite", display: "inline-block" }} /></div>
+          : members.length === 0
+          ? <EmptyState icon="◉" title="ยังไม่มีสมาชิก" desc="เชิญทีมงานเข้าร่วม BCMS เพื่อทำงานร่วมกัน" cta="+ เชิญสมาชิก" onCta={onInvite} />
+          : <DataTable
+              cols={[
+                { key: "full_name", label: "ชื่อ-นามสกุล", render: v => v || "—" },
+                { key: "role", label: "บทบาท", render: v => (
+                  <span style={{ fontSize: 10, fontFamily: T.mono, color: roleColor[v] || T.muted, background: (roleColor[v] || T.muted) + "18", padding: "2px 8px", borderRadius: 4 }}>
+                    {(v || "member").toUpperCase()}
+                  </span>
+                )},
+                { key: "access_level", label: "ระดับสิทธิ์", render: v => (
+                  <span style={{ fontSize: 10, fontFamily: T.mono, color: T.muted }}>{v || "org"}</span>
+                )},
+                { key: "department", label: "แผนก/หน่วยงาน", render: v => v || "—" },
+                { key: "created_at", label: "เข้าร่วม", render: v => v ? new Date(v).toLocaleDateString("th-TH", { dateStyle: "medium" }) : "—" },
+              ]}
+              rows={members}
+            />
+        }
+      </ModCard>
+
+      <div style={{ marginBottom: 8 }}>
+        <UsageMeter label={`Users (${members.length}/${maxUsers})`} used={members.length} max={maxUsers} color={atLimit ? T.red : T.gold} warn={0.8} />
+      </div>
+
+      {atLimit && (
+        <div style={{ padding: 14, background: T.amber + "18", border: `1px solid ${T.amber}30`, borderRadius: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ fontSize: 13, color: T.amber, fontFamily: T.sans }}>
+            ถึงขีดจำกัดผู้ใช้แล้ว — อัปเกรดเพื่อเพิ่มทีมงาน
+          </div>
+          <Btn size="sm" onClick={onUpgrade}>อัปเกรดแพ็กเกจ</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────
+   BILLING PAGE — การสมัครสมาชิกและประวัติการชำระเงิน
+   ───────────────────────────────────────────────────────── */
+function BillingPage({ user, pkg, onUpgrade }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const pkgData = PACKAGES.find(p => p.id === pkg) || PACKAGES[1];
+
+  const nowTs = Date.now();
+  const trialEndTs = user?.trialEndsAt ? new Date(user.trialEndsAt).getTime() : null;
+  const trialDaysLeft = trialEndTs ? Math.max(0, Math.ceil((trialEndTs - nowTs) / (1000 * 60 * 60 * 24))) : null;
+  const periodEndTs = user?.currentPeriodEnd ? new Date(user.currentPeriodEnd).getTime() : null;
+  const isTrial = user?.subscriptionStatus === "trialing";
+  const isActive = user?.subscriptionStatus === "active";
+
+  useEffect(() => {
+    if (!user?.orgId) return;
+    supa.from("payment_orders")
+      .select("id,order_ref,plan,billing,amount_thb,status,created_at")
+      .eq("org_id", user.orgId)
+      .order("created_at", { ascending: false })
+      .limit(20)
+      .then(({ data }) => { setHistory(data ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [user?.orgId]);
+
+  const statusColor = { confirmed: T.green, pending: T.amber, rejected: T.red };
+
+  return (
+    <div style={{ animation: "fadeUp 0.4s ease" }}>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 20, fontFamily: T.serif, fontWeight: 800, color: T.white }}>💳 การสมัครสมาชิก</div>
+        <div style={{ fontSize: 12, color: T.muted, fontFamily: T.sans, marginTop: 2 }}>จัดการแพ็กเกจและประวัติการชำระเงิน</div>
+      </div>
+
+      <ModCard style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 10, color: T.muted, fontFamily: T.mono, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>แพ็กเกจปัจจุบัน</div>
+            <div style={{ fontSize: 24, fontWeight: 800, fontFamily: T.serif, color: pkgData.color }}>{pkgData.name}</div>
+            <div style={{ fontSize: 13, color: T.muted2, marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span>สถานะ:</span>
+              <span style={{ color: isActive ? T.green : isTrial ? T.amber : T.red, fontWeight: 700 }}>
+                {isActive ? "✓ Active" : isTrial ? "⏳ ทดลองใช้" : user?.subscriptionStatus || "—"}
+              </span>
+            </div>
+            {isTrial && trialDaysLeft !== null && (
+              <div style={{ marginTop: 6, fontSize: 13, color: T.amber }}>
+                เหลือทดลองใช้อีก <strong>{trialDaysLeft} วัน</strong>
+              </div>
+            )}
+            {isActive && periodEndTs && (
+              <div style={{ marginTop: 6, fontSize: 13, color: T.muted }}>
+                ต่ออายุถัดไป: {new Date(periodEndTs).toLocaleDateString("th-TH", { dateStyle: "medium" })}
+              </div>
+            )}
+          </div>
+          {(!isActive || pkg === "free") && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+              <Btn size="sm" onClick={onUpgrade}>อัปเกรดแพ็กเกจ</Btn>
+              {pkg !== "enterprise" && (
+                <div style={{ fontSize: 11, color: T.muted, fontFamily: T.sans, textAlign: "right" }}>
+                  Professional ฿7,900/เดือน · Enterprise ฿19,900/เดือน
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+            {[
+              { label: "Users", value: pkgData.limits.users },
+              { label: "BIA Process", value: pkgData.limits.biaProcess || "ไม่จำกัด" },
+              { label: "Storage", value: pkgData.limits.storage || "—" },
+              { label: "Support", value: pkgData.support || "Community" },
+            ].map(item => (
+              <div key={item.label} style={{ background: T.bg3, borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ fontSize: 9, color: T.muted, fontFamily: T.mono, letterSpacing: 1, textTransform: "uppercase", marginBottom: 3 }}>{item.label}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.white, fontFamily: T.sans }}>{item.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </ModCard>
+
+      <div style={{ fontSize: 14, fontWeight: 700, color: T.white, fontFamily: T.serif, marginBottom: 10 }}>ประวัติการชำระเงิน</div>
+      <ModCard>
+        {loading
+          ? <div style={{ padding: 32, textAlign: "center" }}><span style={{ width: 20, height: 20, border: `2px solid ${T.border}`, borderTopColor: T.gold, borderRadius: "50%", animation: "spin 0.7s linear infinite", display: "inline-block" }} /></div>
+          : history.length === 0
+          ? <EmptyState icon="💳" title="ยังไม่มีประวัติการชำระเงิน" desc="ประวัติการสั่งซื้อและชำระเงินจะปรากฏที่นี่หลังจากอัปเกรด" />
+          : <DataTable
+              cols={[
+                { key: "order_ref", label: "Order Ref", render: v => <span style={{ fontFamily: T.mono, fontSize: 12 }}>{v || "—"}</span> },
+                { key: "plan", label: "แพ็กเกจ", render: v => (v || "—").toUpperCase() },
+                { key: "billing", label: "ประเภท", render: v => v === "annual" ? "รายปี" : v === "monthly" ? "รายเดือน" : v || "—" },
+                { key: "amount_thb", label: "จำนวนเงิน", render: v => v ? `฿${Number(v).toLocaleString()}` : "—" },
+                { key: "status", label: "สถานะ", render: v => (
+                  <span style={{ fontSize: 10, fontFamily: T.mono, color: statusColor[v] || T.muted, background: (statusColor[v] || T.muted) + "18", padding: "2px 8px", borderRadius: 4 }}>
+                    {(v || "—").toUpperCase()}
+                  </span>
+                )},
+                { key: "created_at", label: "วันที่", render: v => v ? new Date(v).toLocaleDateString("th-TH", { dateStyle: "medium" }) : "—" },
+              ]}
+              rows={history}
+            />
+        }
+      </ModCard>
+    </div>
+  );
+}
 
 /*
  * ══════════════════════════════════════════════════════════════

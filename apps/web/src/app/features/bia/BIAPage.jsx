@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   buildBiaProcessPayload,
@@ -82,26 +82,35 @@ export default function BIAPage({ orgId, pkg, onUpgrade, deps }) {
 
   const load = async () => {
     setLoading(true);
-    const [{ data }, { data: orgData }] = await Promise.all([
-      supa.from("bia_processes")
-      .select("id,name,department,owner,criticality,rto_minutes,rpo_minutes,mtpd_minutes,status,metadata,created_at")
-      .eq("org_id", orgId).order("created_at", { ascending: false }),
-      supa.from("organizations")
-        .select("features")
-        .eq("id", orgId)
-        .maybeSingle(),
-    ]);
+    try {
+      const [{ data, error: e1 }, { data: orgData, error: e2 }] = await Promise.all([
+        supa.from("bia_processes")
+          .select("id,name,department,owner,criticality,rto_minutes,rpo_minutes,mtpd_minutes,status,metadata,created_at")
+          .eq("org_id", orgId).order("criticality", { ascending: false }),
+        supa.from("organizations")
+          .select("features")
+          .eq("id", orgId)
+          .maybeSingle(),
+      ]);
 
-    const cfg = orgData?.features?.bia_auto_weights;
-    if (cfg) {
-      setAutoWeights({
-        impact: Number(cfg.impact) || 60,
-        rto: Number(cfg.rto) || 25,
-        mtpd: Number(cfg.mtpd) || 15,
-      });
+      if (e1) console.error("BIA load error:", e1);
+      if (e2) console.error("BIA org load error:", e2);
+
+      const cfg = orgData?.features?.bia_auto_weights;
+      if (cfg) {
+        setAutoWeights({
+          impact: Number(cfg.impact) || 60,
+          rto: Number(cfg.rto) || 25,
+          mtpd: Number(cfg.mtpd) || 15,
+        });
+      }
+      setProcesses(data ?? []);
+    } catch (err) {
+      console.error("BIA load exception:", err);
+      setProcesses([]);
+    } finally {
+      setLoading(false);
     }
-    setProcesses(data ?? []);
-    setLoading(false);
   };
 
   const loadDepartments = async () => {
@@ -241,8 +250,10 @@ export default function BIAPage({ orgId, pkg, onUpgrade, deps }) {
             { key:"mtpd", label:"MTPD %" },
           ].map((w) => (
             <div key={w.key} style={{ background:T.bg3, border:`1px solid ${T.border}`, borderRadius:10, padding:10 }}>
-              <div style={{ fontSize:11, color:T.muted2, marginBottom:6 }}>{w.label}</div>
+              <label htmlFor={`weight-${w.key}`} style={{ fontSize:11, color:T.muted2, marginBottom:6, display:"block" }}>{w.label}</label>
               <input
+                id={`weight-${w.key}`}
+                name={`weight_${w.key}`}
                 type="number"
                 min={0}
                 max={100}
@@ -361,9 +372,9 @@ export default function BIAPage({ orgId, pkg, onUpgrade, deps }) {
           { l:"MTPD (เวลา)", k:"mtpd_minutes", placeholder:"เช่น 24h หรือ 24:00" },
         ].map(f => (
           <div key={f.k} style={{ marginBottom:14 }}>
-            <label style={{ fontSize:12, fontWeight:600, color:T.muted2, fontFamily:T.sans,
+            <label htmlFor={`field-${f.k}`} style={{ fontSize:12, fontWeight:600, color:T.muted2, fontFamily:T.sans,
               display:"block", marginBottom:5 }}>{f.l}</label>
-            <input type={f.type||"text"} value={form[f.k]}
+            <input id={`field-${f.k}`} name={f.k} type={f.type||"text"} value={form[f.k]}
               onChange={e => setForm(p=>({...p,[f.k]:e.target.value}))}
               placeholder={f.placeholder}
               style={{ width:"100%", padding:"9px 12px", background:T.bg3,
@@ -418,8 +429,8 @@ export default function BIAPage({ orgId, pkg, onUpgrade, deps }) {
           <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:8 }}>
             {IMPACT_KEYS.map((k) => (
               <div key={k}>
-                <div style={{ fontSize:10, color:T.muted, marginBottom:4, textTransform:"capitalize" }}>{k}</div>
-                <input type="number" min={0} max={5}
+                <label htmlFor={`impact-${k}`} style={{ fontSize:10, color:T.muted, marginBottom:4, textTransform:"capitalize", display:"block" }}>{k}</label>
+                <input id={`impact-${k}`} name={`impact_${k}`} type="number" min={0} max={5}
                   value={form.impacts?.[k] ?? 0}
                   onChange={(e) => setForm((p) => ({
                     ...p,
