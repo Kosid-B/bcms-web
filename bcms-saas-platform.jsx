@@ -8448,13 +8448,9 @@ function SettingsPage({ user, pkg, onUpgrade }) {
                 supa.functions("plg-event",{event_name:"data_exported"}).catch(()=>{});
                 alert("กำลังเตรียมข้อมูล... (เชื่อมต่อ export endpoint ใน production)");
               }},
-            { title:"ลบบัญชีผู้ใช้", desc:"ลบบัญชีของคุณออกจากระบบ ข้อมูลองค์กรจะยังคงอยู่",
+            { title:"ลบบัญชีและข้อมูลองค์กร", desc:"ลบข้อมูลทั้งหมดตามสิทธิ์ PDPA (Right to Erasure) ไม่สามารถย้อนกลับได้",
               label:"ลบบัญชี", variant:"danger",
-              action: () => {
-                if (window.confirm("ยืนยันการลบบัญชีผู้ใช้? การกระทำนี้ไม่สามารถย้อนกลับได้")) {
-                  alert("กรุณาติดต่อ support@b-tctraining.com เพื่อดำเนินการลบบัญชี");
-                }
-              }},
+              action: () => setShowDeleteModal(true) },
           ].map(item => (
             <div key={item.title} style={{ display:"flex", alignItems:"center", gap:14,
               padding:"14px 0", borderBottom:`1px solid ${T.border}` }}>
@@ -8471,11 +8467,99 @@ function SettingsPage({ user, pkg, onUpgrade }) {
   );
 }
 // ─── DASHBOARD ────────────────────────────────────────────────
+function DeleteAccountModal({ orgName, onCancel, onConfirm }) {
+  const [confirmText, setConfirmText] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const ready = confirmText.trim().toUpperCase() === "DELETE";
+
+  const handleConfirm = async () => {
+    if (!ready || loading) return;
+    setLoading(true);
+    await onConfirm();
+    setLoading(false);
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9999,
+      background: "rgba(5,10,22,0.85)", display: "flex",
+      alignItems: "center", justifyContent: "center", padding: 20,
+    }}>
+      <div style={{
+        background: "#111C35", border: "1px solid #2A3F6F",
+        borderRadius: 16, padding: 28, maxWidth: 440, width: "100%",
+        boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
+      }}>
+        <div style={{ fontSize: 28, marginBottom: 12, textAlign: "center" }}>⚠️</div>
+        <h3 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 800, color: "#F1F5FB", textAlign: "center" }}>
+          ลบบัญชีและข้อมูลองค์กร
+        </h3>
+        <p style={{ margin: "0 0 16px", fontSize: 13, color: "#8DA3C8", lineHeight: 1.7, textAlign: "center" }}>
+          การกระทำนี้จะลบ BIA, Risk, BC Plans และข้อมูลทั้งหมดของ <strong style={{ color: "#F1F5FB" }}>{orgName}</strong> อย่างถาวร ตามสิทธิ์ PDPA (Right to Erasure)
+        </p>
+        <div style={{ background: "#1A2D52", borderRadius: 8, padding: 12, marginBottom: 20, fontSize: 12, color: "#8DA3C8" }}>
+          <div>• ข้อมูล BIA, Risk, BC Plans — ถูกลบถาวร</div>
+          <div>• ชื่อและข้อมูลส่วนตัว — ถูก anonymise</div>
+          <div>• Subscription — ยกเลิกทันที</div>
+          <div>• บัญชี Auth — ลบภายใน 24 ชั่วโมง</div>
+        </div>
+        <label style={{ display: "block", fontSize: 12, color: "#8DA3C8", marginBottom: 6 }}>
+          พิมพ์ <strong style={{ color: "#EF4444" }}>DELETE</strong> เพื่อยืนยัน
+        </label>
+        <input
+          type="text"
+          value={confirmText}
+          onChange={e => setConfirmText(e.target.value)}
+          placeholder="DELETE"
+          autoFocus
+          style={{
+            width: "100%", padding: "10px 12px", borderRadius: 8,
+            border: `1.5px solid ${ready ? "#EF4444" : "#2A3F6F"}`,
+            background: "#0D1B3E", color: "#F1F5FB", fontSize: 14,
+            outline: "none", marginBottom: 16, boxSizing: "border-box",
+            fontFamily: "monospace", letterSpacing: "0.1em",
+          }}
+        />
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={loading}
+            style={{
+              flex: 1, padding: "10px 0", borderRadius: 8,
+              border: "1px solid #2A3F6F", background: "transparent",
+              color: "#8DA3C8", fontWeight: 600, cursor: "pointer", fontSize: 13,
+            }}
+          >
+            ยกเลิก
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={!ready || loading}
+            style={{
+              flex: 1, padding: "10px 0", borderRadius: 8,
+              border: "none",
+              background: ready ? "#DC2626" : "#3A2030",
+              color: ready ? "#fff" : "#6B3040",
+              fontWeight: 700, cursor: ready ? "pointer" : "not-allowed",
+              fontSize: 13, transition: "background 0.2s",
+            }}
+          >
+            {loading ? "กำลังลบ..." : "ลบบัญชีถาวร"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOnboardingDone }) {
   const [activePage,    setActivePage]    = useState("overview");
   const [showInvite,    setShowInvite]    = useState(false);
-  const [showPLGAdmin,  setShowPLGAdmin]  = useState(false);
-  const [activeToast,   setActiveToast]   = useState(null);
+  const [showPLGAdmin,      setShowPLGAdmin]      = useState(false);
+  const [showDeleteModal,   setShowDeleteModal]   = useState(false);
+  const [activeToast,       setActiveToast]       = useState(null);
   const [dismissedNudge,setDismissedNudge]= useState(false);
 
   const pkgData   = PACKAGES.find(p => p.id === pkg) || PACKAGES[1];
@@ -8613,6 +8697,18 @@ export function Dashboard({ user, pkg, onLogout, onUpgrade, showOnboarding, onOn
       )}
       {showPLGAdmin && (
         <PLGAdminDashboard onClose={() => setShowPLGAdmin(false)}/>
+      )}
+      {showDeleteModal && (
+        <DeleteAccountModal
+          orgName={user?.org ?? ""}
+          onCancel={() => setShowDeleteModal(false)}
+          onConfirm={async () => {
+            const { error } = await supa.rpc("request_account_deletion");
+            if (error) { alert("เกิดข้อผิดพลาด: " + (error.message ?? "โปรดลองใหม่")); return; }
+            setShowDeleteModal(false);
+            await onLogout();
+          }}
+        />
       )}
       {activeToast && (
         <ActivationToast milestone={activeToast} onClose={() => setActiveToast(null)}/>

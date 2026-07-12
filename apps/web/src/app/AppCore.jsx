@@ -337,89 +337,47 @@ export default function AppCore({ tenant }) {
 
       {user && !mustChoosePlan && (
         <>
-          <div
-            style={{
-              position: "fixed",
-              top: 84,
-              right: 14,
-              zIndex: 32,
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-              background: "rgba(255,255,255,0.95)",
-              border: "1px solid #dbe5f5",
-              borderRadius: 12,
-              padding: 8,
-              boxShadow: "0 8px 24px rgba(14,38,74,0.15)",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setView("dashboard")}
-              disabled={mustSetupOrganization}
-              style={{
-                border: "none",
-                borderRadius: 8,
-                padding: "8px 10px",
-                background: view === "dashboard" ? "#1565c0" : "#eef4ff",
-                color: view === "dashboard" ? "#fff" : "#17335c",
-                fontWeight: 700,
-                cursor: mustSetupOrganization ? "not-allowed" : "pointer",
-                opacity: mustSetupOrganization ? 0.5 : 1,
-              }}
-            >
-              Dashboard
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("personnel_continuity")}
-              disabled={mustSetupOrganization}
-              style={{
-                border: "none",
-                borderRadius: 8,
-                padding: "8px 10px",
-                background: view === "personnel_continuity" ? "#1565c0" : "#eef4ff",
-                color: view === "personnel_continuity" ? "#fff" : "#17335c",
-                fontWeight: 700,
-                cursor: mustSetupOrganization ? "not-allowed" : "pointer",
-                opacity: mustSetupOrganization ? 0.5 : 1,
-              }}
-            >
-              Personnel
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("organization_feature")}
-              style={{
-                border: "none",
-                borderRadius: 8,
-                padding: "8px 10px",
-                background: view === "organization_feature" ? "#1565c0" : "#eef4ff",
-                color: view === "organization_feature" ? "#fff" : "#17335c",
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              Organization
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("continuity_strategy")}
-              disabled={mustSetupOrganization}
-              style={{
-                border: "none",
-                borderRadius: 8,
-                padding: "8px 10px",
-                background: view === "continuity_strategy" ? "#1565c0" : "#eef4ff",
-                color: view === "continuity_strategy" ? "#fff" : "#17335c",
-                fontWeight: 700,
-                cursor: mustSetupOrganization ? "not-allowed" : "pointer",
-                opacity: mustSetupOrganization ? 0.5 : 1,
-              }}
-            >
-              Strategy
-            </button>
-          </div>
+          {/* Top navbar — only for sub-pages; Dashboard has its own sidebar */}
+          {view !== "dashboard" && (
+            <nav style={{
+              position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
+              height: 52, background: "#0D1B3E",
+              borderBottom: "1px solid #1a2d50",
+              display: "flex", alignItems: "center", gap: 4, padding: "0 20px",
+              boxShadow: "0 2px 12px rgba(0,0,0,0.3)",
+            }}>
+              <span style={{
+                color: "#60A5FA", fontWeight: 900, fontSize: 15,
+                letterSpacing: "0.01em", marginRight: 16, userSelect: "none",
+              }}>
+                ◈ BCMS
+              </span>
+              {[
+                { id: "dashboard",           label: "Dashboard",    disabled: mustSetupOrganization },
+                { id: "personnel_continuity", label: "Personnel",    disabled: mustSetupOrganization },
+                { id: "organization_feature", label: "Organization", disabled: false },
+                { id: "continuity_strategy",  label: "Strategy",     disabled: mustSetupOrganization },
+              ].map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => !item.disabled && setView(item.id)}
+                  disabled={item.disabled}
+                  style={{
+                    border: "none", borderRadius: 6, padding: "6px 13px",
+                    background: view === item.id ? "#1565C0" : "transparent",
+                    color: view === item.id ? "#fff"
+                      : item.disabled ? "#374B6E" : "#94B4E0",
+                    fontWeight: 600, fontSize: 13,
+                    cursor: item.disabled ? "not-allowed" : "pointer",
+                    transition: "background 0.15s, color 0.15s",
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+          )}
 
           {view === "dashboard" && !mustSetupOrganization && (
             <Dashboard
@@ -441,32 +399,38 @@ export default function AppCore({ tenant }) {
       )}
 
       {view === "personnel_continuity" && user && !mustChoosePlan && !mustSetupOrganization && (
-        <PersonnelContinuityPage
-          user={user}
-          onBack={() => setView("dashboard")}
-        />
+        <div style={{ paddingTop: 52 }}>
+          <PersonnelContinuityPage
+            user={user}
+            onBack={() => setView("dashboard")}
+          />
+        </div>
       )}
 
       {view === "organization_feature" && user && !mustChoosePlan && (
-        <OrganizationFeaturePage
-          user={user}
-          forceRequired={mustSetupOrganization}
-          onSetupComplete={async () => {
-            const stillRequired = await evaluateOrganizationSetup(user.orgId);
-            setMustSetupOrganization(stillRequired);
-            if (!stillRequired) setView("dashboard");
-          }}
-          onBack={() => {
-            if (!mustSetupOrganization) setView("dashboard");
-          }}
-        />
+        <div style={{ paddingTop: mustSetupOrganization ? 0 : 52 }}>
+          <OrganizationFeaturePage
+            user={user}
+            forceRequired={mustSetupOrganization}
+            onSetupComplete={async () => {
+              const stillRequired = await evaluateOrganizationSetup(user.orgId);
+              setMustSetupOrganization(stillRequired);
+              if (!stillRequired) setView("dashboard");
+            }}
+            onBack={() => {
+              if (!mustSetupOrganization) setView("dashboard");
+            }}
+          />
+        </div>
       )}
 
       {view === "continuity_strategy" && user && !mustChoosePlan && !mustSetupOrganization && (
-        <ContinuityStrategyPage
-          user={user}
-          onBack={() => setView("dashboard")}
-        />
+        <div style={{ paddingTop: 52 }}>
+          <ContinuityStrategyPage
+            user={user}
+            onBack={() => setView("dashboard")}
+          />
+        </div>
       )}
 
       {view === "plan_gate" && user && (
