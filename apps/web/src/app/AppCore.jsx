@@ -1,5 +1,56 @@
 import React, { useCallback, useEffect, useState } from "react";
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <div style={{
+        minHeight: "100vh", display: "grid", placeItems: "center",
+        background: "#F0F4FB", padding: 24,
+      }}>
+        <div style={{
+          maxWidth: 480, background: "#fff", border: "1px solid #DBE5F5",
+          borderRadius: 16, padding: 32, textAlign: "center",
+        }}>
+          <div style={{ fontSize: 40, marginBottom: 16 }}>⚠️</div>
+          <h2 style={{ margin: "0 0 8px", fontSize: 20, color: "#10294D" }}>
+            เกิดข้อผิดพลาดที่ไม่คาดคิด
+          </h2>
+          <p style={{ color: "#4B5B78", fontSize: 14, marginBottom: 24 }}>
+            กรุณารีเฟรชหน้า หรือกดปุ่มด้านล่างเพื่อลองใหม่
+          </p>
+          <button
+            onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
+            style={{
+              padding: "10px 20px", borderRadius: 10, border: "none",
+              background: "#1565C0", color: "#fff", fontWeight: 700,
+              cursor: "pointer", fontSize: 14,
+            }}
+          >
+            รีเฟรชหน้า
+          </button>
+          {import.meta.env.DEV && this.state.error && (
+            <pre style={{
+              marginTop: 20, textAlign: "left", fontSize: 11,
+              background: "#FEF2F2", color: "#991B1B", padding: 12,
+              borderRadius: 8, overflow: "auto", maxHeight: 200,
+            }}>
+              {String(this.state.error)}
+            </pre>
+          )}
+        </div>
+      </div>
+    );
+  }
+}
+
 import AuthModal from "./features/auth/AuthModal.jsx";
 import PaymentModal from "./features/billing/PaymentModal.jsx";
 import Dashboard from "./features/dashboard/Dashboard.jsx";
@@ -255,6 +306,7 @@ export default function AppCore({ tenant }) {
   };
 
   return (
+    <ErrorBoundary>
     <>
       <FontLink />
 
@@ -475,6 +527,7 @@ export default function AppCore({ tenant }) {
         />
       )}
     </>
+    </ErrorBoundary>
   );
 }
 
