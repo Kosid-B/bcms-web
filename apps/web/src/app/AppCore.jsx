@@ -112,13 +112,16 @@ export default function AppCore({ tenant }) {
 
     if (!profile) return null;
 
-    const sub = profile?.subscriptions?.[0] || null;
-    const plan = sub.plan ?? "free";
-    const status = sub.status ?? "trialing";
-    const trialEndsAt = sub.trial_ends_at;
+    const SUPER_ADMIN_EMAILS = new Set(["support@b-tctraining.com", "admin@b-tctraining.com"]);
+    const isSuperAdmin = SUPER_ADMIN_EMAILS.has(userEmail?.toLowerCase() ?? "");
 
-    const currentPeriodEnd = sub.current_period_end ?? null;
-    const canAccess = canAccessApp(
+    const sub = profile?.subscriptions?.[0] || null;
+    const plan = isSuperAdmin ? "enterprise" : (sub?.plan ?? "free");
+    const status = isSuperAdmin ? "active" : (sub?.status ?? "trialing");
+    const trialEndsAt = isSuperAdmin ? null : sub?.trial_ends_at;
+
+    const currentPeriodEnd = isSuperAdmin ? null : (sub?.current_period_end ?? null);
+    const canAccess = isSuperAdmin || canAccessApp(
       sub ?? { plan: "free", status: "trialing", trial_ends_at: null },
       profile.org_id,
     );
@@ -137,6 +140,7 @@ export default function AppCore({ tenant }) {
       role: profile.role ?? "member",
       accessLevel: profile.access_level ?? "org",
       department: profile.department ?? null,
+      isSuperAdmin,
     };
   }, [canAccessApp]);
 
