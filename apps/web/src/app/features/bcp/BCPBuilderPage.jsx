@@ -265,22 +265,26 @@ export default function BCPBuilderPage({ user }) {
   const load = useCallback(async () => {
     if (!orgId) return;
     setLoading(true);
-    const [r, p, c, ct, ai] = await Promise.all([
-      supaLite.from("bcp_risks").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
-      supaLite.from("bcp_recovery_procedures").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
-      supaLite.from("bcp_comm_templates").select("*").eq("org_id", orgId).order("created_at"),
-      supaLite.from("bcp_emergency_contacts").select("*").eq("org_id", orgId).order("sort_order"),
-      supaLite.from("bcp_action_items").select("*").eq("org_id", orgId),
-    ]);
-    setRisks(r?.data ?? []);
-    setProcs(p?.data ?? []);
-    setComms(c?.data ?? []);
-    setContacts(ct?.data ?? []);
-    // Convert to map: action_key → {completed, notes, completed_at}
-    const aiMap = {};
-    (ai?.data ?? []).forEach(item => { aiMap[item.action_key] = item; });
-    setActionItems(aiMap);
-    setLoading(false);
+    try {
+      const [r, p, c, ct, ai] = await Promise.all([
+        supaLite.from("bcp_risks").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
+        supaLite.from("bcp_recovery_procedures").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
+        supaLite.from("bcp_comm_templates").select("*").eq("org_id", orgId).order("created_at"),
+        supaLite.from("bcp_emergency_contacts").select("*").eq("org_id", orgId).order("sort_order"),
+        supaLite.from("bcp_action_items").select("*").eq("org_id", orgId),
+      ]);
+      setRisks(r?.data ?? []);
+      setProcs(p?.data ?? []);
+      setComms(c?.data ?? []);
+      setContacts(ct?.data ?? []);
+      const aiMap = {};
+      (ai?.data ?? []).forEach(item => { aiMap[item.action_key] = item; });
+      setActionItems(aiMap);
+    } catch (_) {
+      setRisks([]); setProcs([]); setComms([]); setContacts([]); setActionItems({});
+    } finally {
+      setLoading(false);
+    }
   }, [orgId]);
 
   useEffect(() => { load(); }, [load]);

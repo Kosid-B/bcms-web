@@ -65,20 +65,25 @@ export default function PersonnelContinuityPage({ user, onBack }) {
   const loadAll = async () => {
     if (!user?.orgId) return;
     setLoading(true);
-    const [r1, r2, r3, r4, r5] = await Promise.all([
-      supaLite.rpc("evaluate_personnel_readiness", { p_org_id: user.orgId, p_unit_id: null }),
-      supaLite.from("org_units").select("id,unit_code,unit_name,criticality,minimum_capacity_pct,target_rto_minutes,created_at").eq("org_id", user.orgId).order("created_at", { ascending: false }),
-      supaLite.from("personnel_roles").select("id,role_name,unit_id,criticality,min_headcount,target_headcount,max_absence_pct,created_at").eq("org_id", user.orgId).order("created_at", { ascending: false }),
-      supaLite.from("personnel_profiles").select("id,full_name,unit_id,employment_type,status,email,phone,created_at").eq("org_id", user.orgId).order("created_at", { ascending: false }),
-      supaLite.from("personnel_assignments").select("id,person_id,role_id,is_primary,backup_priority,effective_from,effective_to,created_at").eq("org_id", user.orgId).order("created_at", { ascending: false }),
-    ]);
-
-    setReadiness(r1?.data ?? null);
-    setUnits(r2?.data ?? []);
-    setRoles(r3?.data ?? []);
-    setPeople(r4?.data ?? []);
-    setAssignments(r5?.data ?? []);
-    setLoading(false);
+    try {
+      const [r1, r2, r3, r4, r5] = await Promise.all([
+        supaLite.rpc("evaluate_personnel_readiness", { p_org_id: user.orgId, p_unit_id: null }),
+        supaLite.from("org_units").select("id,unit_code,unit_name,criticality,minimum_capacity_pct,target_rto_minutes,created_at").eq("org_id", user.orgId).order("created_at", { ascending: false }),
+        supaLite.from("personnel_roles").select("id,role_name,unit_id,criticality,min_headcount,target_headcount,max_absence_pct,created_at").eq("org_id", user.orgId).order("created_at", { ascending: false }),
+        supaLite.from("personnel_profiles").select("id,full_name,unit_id,employment_type,status,email,phone,created_at").eq("org_id", user.orgId).order("created_at", { ascending: false }),
+        supaLite.from("personnel_assignments").select("id,person_id,role_id,is_primary,backup_priority,effective_from,effective_to,created_at").eq("org_id", user.orgId).order("created_at", { ascending: false }),
+      ]);
+      setReadiness(r1?.data ?? null);
+      setUnits(r2?.data ?? []);
+      setRoles(r3?.data ?? []);
+      setPeople(r4?.data ?? []);
+      setAssignments(r5?.data ?? []);
+    } catch (_) {
+      setReadiness(null);
+      setUnits([]); setRoles([]); setPeople([]); setAssignments([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {

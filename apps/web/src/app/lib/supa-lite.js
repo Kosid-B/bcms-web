@@ -168,37 +168,41 @@ class SupaQueryLite {
       return { data: null, count: null, error: { message: "Supabase environment is not configured." } };
     }
 
-    let res = await this._fetchRest(this._getToken());
+    try {
+      let res = await this._fetchRest(this._getToken());
 
-    // Auto-refresh on 401 and retry once
-    if (res.status === 401) {
-      const { data: refreshed } = await supaLite.auth.refreshSession();
-      if (refreshed?.session) {
-        res = await this._fetchRest(supaLite._token);
+      // Auto-refresh on 401 and retry once
+      if (res.status === 401) {
+        const { data: refreshed } = await supaLite.auth.refreshSession();
+        if (refreshed?.session) {
+          res = await this._fetchRest(supaLite._token);
+        }
       }
+
+      // Extract count from Content-Range header (PostgREST pattern)
+      const contentRange = res.headers?.get?.("content-range") ?? "";
+      let count = null;
+      if (contentRange && this._countMode) {
+        const match = contentRange.match(/\/(\d+|\*)$/);
+        count = match && match[1] !== "*" ? parseInt(match[1], 10) : null;
+      }
+
+      if (this._headOnly) return { data: null, count, error: null };
+
+      const data = await res.json();
+      if (!res.ok) return { data: null, count: null, error: data };
+
+      if (this._single) {
+        return { data: Array.isArray(data) ? (data[0] ?? null) : data, count, error: null };
+      }
+      if (this._maybeSingle) {
+        return { data: Array.isArray(data) ? (data[0] ?? null) : data, count, error: null };
+      }
+
+      return { data, count, error: null };
+    } catch (err) {
+      return { data: null, count: null, error: { message: err?.message ?? "Network error" } };
     }
-
-    // Extract count from Content-Range header (PostgREST pattern)
-    const contentRange = res.headers?.get?.("content-range") ?? "";
-    let count = null;
-    if (contentRange && this._countMode) {
-      const match = contentRange.match(/\/(\d+|\*)$/);
-      count = match && match[1] !== "*" ? parseInt(match[1], 10) : null;
-    }
-
-    if (this._headOnly) return { data: null, count, error: null };
-
-    const data = await res.json();
-    if (!res.ok) return { data: null, count: null, error: data };
-
-    if (this._single) {
-      return { data: Array.isArray(data) ? (data[0] ?? null) : data, count, error: null };
-    }
-    if (this._maybeSingle) {
-      return { data: Array.isArray(data) ? (data[0] ?? null) : data, count, error: null };
-    }
-
-    return { data, count, error: null };
   }
 
   async _fetchMutation(method, payload, token) {
@@ -226,26 +230,30 @@ class SupaQueryLite {
       return { data: null, error: { message: "Supabase environment is not configured." } };
     }
 
-    let res = await this._fetchMutation(method, payload, this._getToken());
+    try {
+      let res = await this._fetchMutation(method, payload, this._getToken());
 
-    // Auto-refresh on 401 and retry once
-    if (res.status === 401) {
-      const { data: refreshed } = await supaLite.auth.refreshSession();
-      if (refreshed?.session) {
-        res = await this._fetchMutation(method, payload, supaLite._token);
+      // Auto-refresh on 401 and retry once
+      if (res.status === 401) {
+        const { data: refreshed } = await supaLite.auth.refreshSession();
+        if (refreshed?.session) {
+          res = await this._fetchMutation(method, payload, supaLite._token);
+        }
       }
+
+      if (method === "DELETE" && res.status === 204) return { data: null, error: null };
+
+      const data = await res.json();
+      if (!res.ok) return { data: null, error: data };
+
+      if (this._single || this._maybeSingle) {
+        return { data: Array.isArray(data) ? (data[0] ?? null) : data, error: null };
+      }
+
+      return { data, error: null };
+    } catch (err) {
+      return { data: null, error: { message: err?.message ?? "Network error" } };
     }
-
-    if (method === "DELETE" && res.status === 204) return { data: null, error: null };
-
-    const data = await res.json();
-    if (!res.ok) return { data: null, error: data };
-
-    if (this._single || this._maybeSingle) {
-      return { data: Array.isArray(data) ? (data[0] ?? null) : data, error: null };
-    }
-
-    return { data, error: null };
   }
 }
 
@@ -381,25 +389,29 @@ export const supaLite = {
     if (!ensureConfigured()) {
       return { data: null, error: { message: "Supabase environment is not configured." } };
     }
-    const doFetch = (token) => fetch(`${this.url}/rest/v1/rpc/${fn}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: this.key,
-        Authorization: `Bearer ${token ?? this.key}`,
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify(params),
-    });
+    try {
+      const doFetch = (token) => fetch(`${this.url}/rest/v1/rpc/${fn}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: this.key,
+          Authorization: `Bearer ${token ?? this.key}`,
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify(params),
+      });
 
-    let res = await doFetch(this._token);
-    if (res.status === 401) {
-      const { data: refreshed } = await supaLite.auth.refreshSession();
-      if (refreshed?.session) res = await doFetch(supaLite._token);
+      let res = await doFetch(this._token);
+      if (res.status === 401) {
+        const { data: refreshed } = await supaLite.auth.refreshSession();
+        if (refreshed?.session) res = await doFetch(supaLite._token);
+      }
+
+      const data = await res.json();
+      return { data: res.ok ? data : null, error: res.ok ? null : data };
+    } catch (err) {
+      return { data: null, error: { message: err?.message ?? "Network error" } };
     }
-
-    const data = await res.json();
-    return { data: res.ok ? data : null, error: res.ok ? null : data };
   },
 
   _channels: {},

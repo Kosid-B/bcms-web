@@ -141,38 +141,42 @@ export default function ContinuityStrategyPage({ user, onBack }) {
   const load = async () => {
     if (!user?.orgId) return;
     setLoading(true);
-    const [pRes, bRes, sRes] = await Promise.all([
-      supaLite
-        .from("bia_processes")
-        .select("id,name,department,rto_minutes,mac_pct,status")
-        .eq("org_id", user.orgId)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false }),
-      supaLite
-        .from("bc_plans")
-        .select("id,title,department,process_id,status")
-        .eq("org_id", user.orgId)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false }),
-      supaLite
-        .from("continuity_strategies")
-        .select("id,strategy_code,strategy_name,strategy_category,process_id,bc_plan_id,department,status,target_rto_minutes,target_mac_pct,iso_reference,created_at")
-        .eq("org_id", user.orgId)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false }),
-    ]);
-
-    setProcesses(pRes.data ?? []);
-    setPlans(bRes.data ?? []);
-    setStrategies(sRes.data ?? []);
-    const firstStrategyId = sRes.data?.[0]?.id ?? null;
-    setSelectedStrategyId((prev) => prev ?? firstStrategyId);
-    setAutomation((prev) => ({
-      ...prev,
-      process_id: prev.process_id || pRes.data?.[0]?.id || "",
-      strategy_id: prev.strategy_id || sRes.data?.[0]?.id || "",
-    }));
-    setLoading(false);
+    try {
+      const [pRes, bRes, sRes] = await Promise.all([
+        supaLite
+          .from("bia_processes")
+          .select("id,name,department,rto_minutes,mac_pct,status")
+          .eq("org_id", user.orgId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
+        supaLite
+          .from("bc_plans")
+          .select("id,title,department,process_id,status")
+          .eq("org_id", user.orgId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
+        supaLite
+          .from("continuity_strategies")
+          .select("id,strategy_code,strategy_name,strategy_category,process_id,bc_plan_id,department,status,target_rto_minutes,target_mac_pct,iso_reference,created_at")
+          .eq("org_id", user.orgId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
+      ]);
+      setProcesses(pRes.data ?? []);
+      setPlans(bRes.data ?? []);
+      setStrategies(sRes.data ?? []);
+      const firstStrategyId = sRes.data?.[0]?.id ?? null;
+      setSelectedStrategyId((prev) => prev ?? firstStrategyId);
+      setAutomation((prev) => ({
+        ...prev,
+        process_id: prev.process_id || pRes.data?.[0]?.id || "",
+        strategy_id: prev.strategy_id || sRes.data?.[0]?.id || "",
+      }));
+    } catch (_) {
+      setProcesses([]); setPlans([]); setStrategies([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadSteps = async (strategyId) => {
