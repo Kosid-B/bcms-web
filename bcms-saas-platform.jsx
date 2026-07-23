@@ -273,44 +273,53 @@ class SupaQuery {
   ignore() { this._prefer = "resolution=ignore-duplicates"; return this; }
 
   async _exec() {
-    let url = `${this._url}/rest/v1/${this._table}?select=${encodeURIComponent(this._select)}`;
-    for (const f of this._filters) url += `&${f}`;
-    if (this._order) url += `&order=${this._order}`;
-    if (this._limit) url += `&limit=${this._limit}`;
-
-    const headers = {
-      "Content-Type": "application/json",
-      "apikey": this._key,
-      "Authorization": `Bearer ${(this._getToken() ?? this._key)}`,
-      ...(this._prefer ? { "Prefer": this._prefer } : {}),
-      ...(this._single ? { "Accept": "application/vnd.pgrst.object+json" } : {}),
-    };
-    const fetchOpts = { method: this._method, headers, body: this._body ? JSON.stringify(this._body) : undefined };
-
-    let res = await fetch(url, fetchOpts);
-
-    // 401 auto-retry with token refresh
-    if (res.status === 401) {
-      const { data: refreshed } = await supa.auth.refreshSession();
-      if (refreshed?.session) {
-        headers.Authorization = `Bearer ${supa._token}`;
-        res = await fetch(url, fetchOpts);
+    try {
+      if (!this._url) {
+        return { data: null, error: { message: "Supabase URL not configured" }, count: 0 };
       }
+
+      let url = `${this._url}/rest/v1/${this._table}?select=${encodeURIComponent(this._select)}`;
+      for (const f of this._filters) url += `&${f}`;
+      if (this._order) url += `&order=${this._order}`;
+      if (this._limit) url += `&limit=${this._limit}`;
+
+      const headers = {
+        "Content-Type": "application/json",
+        "apikey": this._key,
+        "Authorization": `Bearer ${(this._getToken() ?? this._key)}`,
+        ...(this._prefer ? { "Prefer": this._prefer } : {}),
+        ...(this._single ? { "Accept": "application/vnd.pgrst.object+json" } : {}),
+      };
+      const fetchOpts = { method: this._method, headers, body: this._body ? JSON.stringify(this._body) : undefined };
+
+      let res = await fetch(url, fetchOpts);
+
+      // 401 auto-retry with token refresh
+      if (res.status === 401) {
+        const { data: refreshed } = await supa.auth.refreshSession();
+        if (refreshed?.session) {
+          headers.Authorization = `Bearer ${supa._token}`;
+          res = await fetch(url, fetchOpts);
+        }
+      }
+
+      let data = null;
+      try { data = res.status !== 204 ? await res.json() : null; } catch(_) {}
+
+      let result = res.ok ? data : null;
+      if (res.ok && this._maybeSingle) {
+        result = Array.isArray(data) ? (data[0] ?? null) : data;
+      }
+
+      return {
+        data: result,
+        error: res.ok ? null : data,
+        count: parseInt(res.headers.get("content-range")?.split("/")[1] ?? "0"),
+      };
+    } catch (err) {
+      // Network error, CORS block, or misconfigured URL — never leave callers hanging
+      return { data: null, error: { message: err?.message ?? "Network error" }, count: 0 };
     }
-
-    let data = null;
-    try { data = res.status !== 204 ? await res.json() : null; } catch(_) {}
-
-    let result = res.ok ? data : null;
-    if (res.ok && this._maybeSingle) {
-      result = Array.isArray(data) ? (data[0] ?? null) : data;
-    }
-
-    return {
-      data: result,
-      error: res.ok ? null : data,
-      count: parseInt(res.headers.get("content-range")?.split("/")[1] ?? "0"),
-    };
   }
   then(resolve, reject) { return this._exec().then(resolve, reject); }
 }
@@ -3565,12 +3574,17 @@ function RiskPage({ orgId, pkg, onUpgrade }) {
   // ── Load ────────────────────────────────────────────────────────────────
   const load = async () => {
     setLoading(true);
-    const { data } = await supa.from("risk_items")
-      .select("id,title,category,severity,likelihood,detectability,rpn,level,treatment,owner,status,description")
-      .eq("org_id", orgId)
-      .order("rpn", { ascending:false });
-    setRisks(data ?? []);
-    setLoading(false);
+    try {
+      const { data } = await supa.from("risk_items")
+        .select("id,title,category,severity,likelihood,detectability,rpn,level,treatment,owner,status,description")
+        .eq("org_id", orgId)
+        .order("rpn", { ascending:false });
+      setRisks(data ?? []);
+    } catch (_) {
+      setRisks([]);
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { if (orgId) load(); }, [orgId]);
 
@@ -4212,15 +4226,20 @@ function ResourcePage({ orgId, pkg, onUpgrade }) {
   // ── Load data ────────────────────────────────────────────────────────────
   const load = async () => {
     setLoading(true);
-    const [resRes, biaRes, prRes] = await Promise.all([
-      supa.from("resources").select("*").eq("org_id",orgId).is("deleted_at",null).order("criticality",{ascending:false}),
-      supa.from("bia_processes").select("id,name,criticality,rto_minutes,mtpd_minutes,department").eq("org_id",orgId).is("deleted_at",null).order("criticality",{ascending:false}),
-      supa.from("process_resources").select("*").eq("org_id",orgId),
-    ]);
-    setResources(resRes.data ?? []);
-    setProcesses(biaRes.data ?? []);
-    setProcRes(prRes.data ?? []);
-    setLoading(false);
+    try {
+      const [resRes, biaRes, prRes] = await Promise.all([
+        supa.from("resources").select("*").eq("org_id",orgId).is("deleted_at",null).order("criticality",{ascending:false}),
+        supa.from("bia_processes").select("id,name,criticality,rto_minutes,mtpd_minutes,department").eq("org_id",orgId).is("deleted_at",null).order("criticality",{ascending:false}),
+        supa.from("process_resources").select("*").eq("org_id",orgId),
+      ]);
+      setResources(resRes.data ?? []);
+      setProcesses(biaRes.data ?? []);
+      setProcRes(prRes.data ?? []);
+    } catch (_) {
+      setResources([]); setProcesses([]); setProcRes([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, [orgId]);
@@ -4917,6 +4936,7 @@ function BCPlanPage({ orgId, pkg, onUpgrade }) {
 
   const load = async () => {
     setLoading(true);
+    try {
     const [planRes, biaRes] = await Promise.all([
       supa.from("bc_plans").select("id,title,version,status,created_at,approved_at,metadata").eq("org_id", orgId).order("created_at", { ascending:false }),
       supa.from("bia_processes").select("id,name,owner,department,criticality,rto_minutes,rpo_minutes,mtpd_minutes,metadata").eq("org_id", orgId).order("criticality", { ascending:false }),
@@ -4939,7 +4959,11 @@ function BCPlanPage({ orgId, pkg, onUpgrade }) {
     const initSim = {};
     displayBIA.forEach(p => { initSim[p.id] = 70; });
     setTriggerSim(initSim);
-    setLoading(false);
+    } catch (_) {
+      setPlans([]); setBIAData([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { if (orgId) load(); }, [orgId]);
@@ -6352,11 +6376,16 @@ function SCCMPage({ orgId, pkg, onUpgrade }) {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supa.from("supply_chain_items")
-      .select("id,name,category,criticality,country,status,last_assessment")
-      .eq("org_id", orgId).order("criticality", { ascending: false });
-    setSuppliers(data ?? []);
-    setLoading(false);
+    try {
+      const { data } = await supa.from("supply_chain_items")
+        .select("id,name,category,criticality,country,status,last_assessment")
+        .eq("org_id", orgId).order("criticality", { ascending: false });
+      setSuppliers(data ?? []);
+    } catch (_) {
+      setSuppliers([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { if (orgId) load(); }, [orgId]);
@@ -6438,11 +6467,16 @@ function ExercisePage({ orgId, pkg, onUpgrade }) {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supa.from("exercises")
-      .select("id,title,type,scheduled_date,status,participants,created_at")
-      .eq("org_id", orgId).order("scheduled_date", { ascending: false });
-    setExercises(data ?? []);
-    setLoading(false);
+    try {
+      const { data } = await supa.from("exercises")
+        .select("id,title,type,scheduled_date,status,participants,created_at")
+        .eq("org_id", orgId).order("scheduled_date", { ascending: false });
+      setExercises(data ?? []);
+    } catch (_) {
+      setExercises([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { if (orgId) load(); }, [orgId]);
@@ -6531,11 +6565,16 @@ function ManagementReviewPage({ orgId, pkg, onUpgrade }) {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supa.from("management_reviews")
-      .select("id,title,review_date,chair,status,created_at")
-      .eq("org_id", orgId).order("review_date", { ascending: false });
-    setReviews(data ?? []);
-    setLoading(false);
+    try {
+      const { data } = await supa.from("management_reviews")
+        .select("id,title,review_date,chair,status,created_at")
+        .eq("org_id", orgId).order("review_date", { ascending: false });
+      setReviews(data ?? []);
+    } catch (_) {
+      setReviews([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { if (orgId) load(); }, [orgId]);
