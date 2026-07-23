@@ -950,11 +950,11 @@ export function AuthModal({ mode: initMode = "login", onClose, onSuccess, select
           orgId: profile?.org_id,
         });
 
-        // PLG event
-        await supa.functions("plg-event", {
+        // PLG event — non-blocking, errors here must not surface to the user
+        supa.functions("plg-event", {
           event_name: "dashboard_opened",
           properties: { method: "login" },
-        });
+        }).catch(() => {});
       }
     } catch (e) {
       setErrors({ email: "เกิดข้อผิดพลาด กรุณาลองใหม่" });
